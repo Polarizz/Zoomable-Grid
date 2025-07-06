@@ -29,6 +29,9 @@ struct ContentView: View {
     @State private var redGridCenterItem: Int = 0
     @State private var redGridVisibleItems: Set<Int> = []
     @State private var itemToMaintainOnZoomOut: Int? = nil
+    @State private var redGridTargetScale: CGFloat = 1.0
+    @State private var blueGridOpacity: Double = 1.0
+    @State private var redGridOpacity: Double = 0.0
     
     let columns = [
         GridItem(.flexible(), spacing: 3),
@@ -83,8 +86,8 @@ struct ContentView: View {
                 }
                 .scrollDisabled(isZooming)
                 .scaleEffect(currentScale, anchor: anchor)
-                .opacity(showRedGrid ? 0 : 1)
-                .animation(.easeInOut(duration: 0.3), value: showRedGrid)
+                .opacity(blueGridOpacity)
+                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridOpacity)
                 
                 // 3-column red grid overlay
                 ScrollView {
@@ -105,14 +108,14 @@ struct ContentView: View {
                                         )
                                         .id(item)
                                         .onAppear {
-                                            if showRedGrid {
+                                            if redGridOpacity > 0.5 {
                                                 redGridVisibleItems.insert(item)
                                                 updateRedGridCenterItem()
                                             }
                                         }
                                         .onDisappear {
                                             redGridVisibleItems.remove(item)
-                                            if showRedGrid {
+                                            if redGridOpacity > 0.5 {
                                                 updateRedGridCenterItem()
                                             }
                                         }
@@ -137,11 +140,11 @@ struct ContentView: View {
                             }
                         }
                     }
-                .scrollDisabled(isZooming || !showRedGrid)
-                .allowsHitTesting(showRedGrid)
-                .scaleEffect(currentScale * 3 / 5, anchor: anchor)
-                .opacity(showRedGrid ? 1 : 0)
-                .animation(.easeInOut(duration: 0.3), value: showRedGrid)
+                .scrollDisabled(isZooming || redGridOpacity < 0.5)
+                .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
+                .scaleEffect(redGridTargetScale, anchor: anchor)
+                .opacity(redGridOpacity)
+                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: redGridOpacity)
             }
             .gesture(
                 MagnificationGesture()
@@ -154,23 +157,35 @@ struct ContentView: View {
                             
                             // Update grid visibility during zoom
                             let zoomThreshold: CGFloat = 1.3
+                            let fadeRange: CGFloat = 0.2 // Range over which fade happens
                             
-                            if currentScale >= zoomThreshold && !showRedGrid {
-                                // Capture the current center item BEFORE showing the red grid
-                                targetRedGridItem = centerVisibleItem
-                                print("Capturing target item for red grid: \(targetRedGridItem)")
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showRedGrid = true
-                                }
-                            } else if currentScale < zoomThreshold && showRedGrid {
-                                // When zooming out, use the red grid's center item
-                                itemToMaintainOnZoomOut = redGridCenterItem
-                                print("Zooming out - maintaining position for item: \(redGridCenterItem)")
-                                
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showRedGrid = false
-                                }
+                            // Calculate opacity based on scale
+                            if currentScale < zoomThreshold - fadeRange/2 {
+                                blueGridOpacity = 1.0
+                                redGridOpacity = 0.0
+                            } else if currentScale > zoomThreshold + fadeRange/2 {
+                                blueGridOpacity = 0.0
+                                redGridOpacity = 1.0
+                            } else {
+                                // In transition zone
+                                let progress = (currentScale - (zoomThreshold - fadeRange/2)) / fadeRange
+                                blueGridOpacity = 1.0 - progress
+                                redGridOpacity = progress
                             }
+                            
+                            // Capture target item when transitioning
+                            if redGridOpacity > 0.3 && !showRedGrid {
+                                targetRedGridItem = centerVisibleItem
+                                showRedGrid = true
+                                print("Capturing target item for red grid: \(targetRedGridItem)")
+                            } else if redGridOpacity < 0.3 && showRedGrid {
+                                itemToMaintainOnZoomOut = redGridCenterItem
+                                showRedGrid = false
+                                print("Zooming out - maintaining position for item: \(redGridCenterItem)")
+                            }
+                            
+                            // Update red grid scale during gesture
+                            redGridTargetScale = currentScale * 3 / 5
                         }
                         if let location = value.second?.startLocation {
                             var x = location.x / geometry.size.width
@@ -262,10 +277,22 @@ struct ContentView: View {
                             finalScale = targetScale
                             anchor = targetAnchor
                             
+                            // Set final opacity values
+                            if targetScale == 1.0 {
+                                blueGridOpacity = 1.0
+                                redGridOpacity = 0.0
+                                showRedGrid = false
+                            } else {
+                                blueGridOpacity = 0.0
+                                redGridOpacity = 1.0
+                                redGridTargetScale = 1.0
+                                showRedGrid = true
+                            }
                         }
                     }
             )
             .animation(.smooth(duration: 0.2), value: currentScale)
+            .animation(.smooth(duration: 0.39), value: redGridTargetScale)
         }
     }
     
