@@ -15,6 +15,15 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 }
 
 struct ContentView: View {
+    // Constants for zoom behavior
+    private let fiveGridScale: CGFloat = 1.0
+    private let threeGridScale: CGFloat = 5.0 / 3.0 // ~1.667
+    private let resistanceMinScale: CGFloat = 0.95 // Minimum scale when zooming out with resistance
+    private let gridTransitionThreshold: CGFloat = 1.3 // Scale at which grids transition
+    private let gridTransitionFadeRange: CGFloat = 0.2 // Range over which fade happens
+    private let velocityThreshold: CGFloat = 0.1 // Minimum velocity for snap decisions
+    private let snapThreshold: CGFloat = 1.1 // Scale threshold for snapping to 3-grid
+
     @State private var currentScale: CGFloat = 1.0
     @State private var finalScale: CGFloat = 1.0
     @State private var anchor: UnitPoint = .center
@@ -144,7 +153,7 @@ struct ContentView: View {
                 .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
                 .scaleEffect(redGridTargetScale, anchor: anchor)
                 .opacity(redGridOpacity)
-                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: redGridOpacity)
+                .animation(.interactiveSpring(response: 0.39, dampingFraction: 0.9), value: redGridOpacity)
             }
             .gesture(
                 MagnificationGesture()
@@ -152,23 +161,47 @@ struct ContentView: View {
                     .onChanged { value in
                         if let magnification = value.first {
                             lastMagnification = currentScale
-                            currentScale = finalScale * magnification
+                            
+                            // Calculate raw scale first
+                            let rawScale = finalScale * magnification
+                            
+                            // Apply resistance when at or below scale 1.0, regardless of starting point
+                            if rawScale <= fiveGridScale && magnification < 1.0 {
+                                // Check if we started from above 1.0 or at 1.0
+                                let baseScale = min(finalScale, fiveGridScale)
+                                
+                                // Maximum zoom out is to resistanceMinScale
+                                let maxZoomOut = baseScale - resistanceMinScale
+                                
+                                // Calculate zoom out progress from base scale
+                                let currentZoomOut = baseScale - rawScale
+                                let maxPossibleZoomOut = baseScale * (1.0 - magnification)
+                                let zoomProgress = currentZoomOut / maxPossibleZoomOut
+                                
+                                // Apply sqrt to create resistance
+                                let resistedProgress = sqrt(zoomProgress)
+                                
+                                // Scale to our maximum zoom out range
+                                let actualZoomOut = resistedProgress * maxZoomOut
+                                
+                                currentScale = baseScale - actualZoomOut
+                            } else {
+                                // Normal scaling when above scale 1.0
+                                currentScale = rawScale
+                            }
                             isZooming = magnification != 1.0
                             
                             // Update grid visibility during zoom
-                            let zoomThreshold: CGFloat = 1.3
-                            let fadeRange: CGFloat = 0.2 // Range over which fade happens
-                            
                             // Calculate opacity based on scale
-                            if currentScale < zoomThreshold - fadeRange/2 {
+                            if currentScale < gridTransitionThreshold - gridTransitionFadeRange/2 {
                                 blueGridOpacity = 1.0
                                 redGridOpacity = 0.0
-                            } else if currentScale > zoomThreshold + fadeRange/2 {
+                            } else if currentScale > gridTransitionThreshold + gridTransitionFadeRange/2 {
                                 blueGridOpacity = 0.0
                                 redGridOpacity = 1.0
                             } else {
                                 // In transition zone
-                                let progress = (currentScale - (zoomThreshold - fadeRange/2)) / fadeRange
+                                let progress = (currentScale - (gridTransitionThreshold - gridTransitionFadeRange/2)) / gridTransitionFadeRange
                                 blueGridOpacity = 1.0 - progress
                                 redGridOpacity = progress
                             }
@@ -208,7 +241,7 @@ struct ContentView: View {
                                 y = 1.0
                             }
                             
-                            if finalScale == 1.0 {
+                            if finalScale == fiveGridScale {
                                 anchor = UnitPoint(x: x, y: y)
                             }
                         }
@@ -220,30 +253,27 @@ struct ContentView: View {
                         // Calculate velocity (change in scale)
                         let velocity = currentScale - lastMagnification
                         
-                        // Scale where 3 items fill the width (5 columns -> 3 columns visible)
-                        let snapScale: CGFloat = 5.0 / 3.0
-                        
                         // Determine target scale based on velocity and current scale
-                        var targetScale: CGFloat = 1.0
+                        var targetScale: CGFloat = fiveGridScale
                         var targetAnchor = anchor
                         
-                        if abs(velocity) > 0.1 { // If there's significant velocity
+                        if abs(velocity) > velocityThreshold { // If there's significant velocity
                             if velocity > 0 && currentScale > 1.1 { // Zooming in
-                                targetScale = snapScale
+                                targetScale = threeGridScale
                             } else { // Zooming out or small scale
-                                targetScale = 1.0
+                                targetScale = fiveGridScale
                             }
                         } else { // No significant velocity, snap to nearest
-                            // Snap happens at 1.2
-                            if currentScale >= 1.2 {
-                                targetScale = snapScale
+                            // Snap happens at snapThreshold
+                            if currentScale >= snapThreshold {
+                                targetScale = threeGridScale
                             } else {
-                                targetScale = 1.0
+                                targetScale = fiveGridScale
                             }
                         }
                         
                         // Calculate anchor for 3-column view
-                        if targetScale == snapScale {
+                        if targetScale == threeGridScale {
                             // Determine which anchor to use based on current position
                             let anchorX: CGFloat
                             
@@ -278,7 +308,7 @@ struct ContentView: View {
                             anchor = targetAnchor
                             
                             // Set final opacity values
-                            if targetScale == 1.0 {
+                            if targetScale == fiveGridScale {
                                 blueGridOpacity = 1.0
                                 redGridOpacity = 0.0
                                 showRedGrid = false
@@ -291,9 +321,10 @@ struct ContentView: View {
                         }
                     }
             )
-            .animation(.smooth(duration: 0.2), value: currentScale)
+            .animation(.smooth(duration: 0.24), value: currentScale)
             .animation(.smooth(duration: 0.39), value: redGridTargetScale)
         }
+        .ignoresSafeArea()
     }
     
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
