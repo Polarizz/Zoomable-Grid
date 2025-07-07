@@ -23,6 +23,7 @@ struct ContentView: View {
     private let gridTransitionFadeRange: CGFloat = 0.2 // Range over which fade happens
     private let velocityThreshold: CGFloat = 0.1 // Minimum velocity for snap decisions
     private let snapThreshold: CGFloat = 1.1 // Scale threshold for snapping to 3-grid
+    private let maxBlurRadius: CGFloat = 10.0 // Maximum blur radius during transitions
 
     @State private var currentScale: CGFloat = 1.0
     @State private var finalScale: CGFloat = 1.0
@@ -41,6 +42,8 @@ struct ContentView: View {
     @State private var redGridTargetScale: CGFloat = 1.0
     @State private var blueGridOpacity: Double = 1.0
     @State private var redGridOpacity: Double = 0.0
+    @State private var blueGridBlur: Double = 0.0
+    @State private var redGridBlur: Double = 0.0
     
     let columns = [
         GridItem(.flexible(), spacing: 3),
@@ -96,7 +99,9 @@ struct ContentView: View {
                 .scrollDisabled(isZooming)
                 .scaleEffect(currentScale, anchor: anchor)
                 .opacity(blueGridOpacity)
+                .blur(radius: blueGridBlur)
                 .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridOpacity)
+                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridBlur)
                 
                 // 3-column red grid overlay
                 ScrollView {
@@ -153,7 +158,9 @@ struct ContentView: View {
                 .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
                 .scaleEffect(redGridTargetScale, anchor: anchor)
                 .opacity(redGridOpacity)
+                .blur(radius: redGridBlur)
                 .animation(.interactiveSpring(response: 0.39, dampingFraction: 0.9), value: redGridOpacity)
+                .animation(.interactiveSpring(response: 0.39, dampingFraction: 0.9), value: redGridBlur)
             }
             .gesture(
                 MagnificationGesture()
@@ -192,18 +199,24 @@ struct ContentView: View {
                             isZooming = magnification != 1.0
                             
                             // Update grid visibility during zoom
-                            // Calculate opacity based on scale
+                            // Calculate opacity and blur based on scale
                             if currentScale < gridTransitionThreshold - gridTransitionFadeRange/2 {
                                 blueGridOpacity = 1.0
                                 redGridOpacity = 0.0
+                                blueGridBlur = 0.0
+                                redGridBlur = maxBlurRadius
                             } else if currentScale > gridTransitionThreshold + gridTransitionFadeRange/2 {
                                 blueGridOpacity = 0.0
                                 redGridOpacity = 1.0
+                                blueGridBlur = maxBlurRadius
+                                redGridBlur = 0.0
                             } else {
                                 // In transition zone
                                 let progress = (currentScale - (gridTransitionThreshold - gridTransitionFadeRange/2)) / gridTransitionFadeRange
                                 blueGridOpacity = 1.0 - progress
                                 redGridOpacity = progress
+                                blueGridBlur = progress * maxBlurRadius
+                                redGridBlur = (1.0 - progress) * maxBlurRadius
                             }
                             
                             // Capture target item when transitioning
@@ -307,14 +320,18 @@ struct ContentView: View {
                             finalScale = targetScale
                             anchor = targetAnchor
                             
-                            // Set final opacity values
+                            // Set final opacity and blur values
                             if targetScale == fiveGridScale {
                                 blueGridOpacity = 1.0
                                 redGridOpacity = 0.0
+                                blueGridBlur = 0.0
+                                redGridBlur = maxBlurRadius
                                 showRedGrid = false
                             } else {
                                 blueGridOpacity = 0.0
                                 redGridOpacity = 1.0
+                                blueGridBlur = maxBlurRadius
+                                redGridBlur = 0.0
                                 redGridTargetScale = 1.0
                                 showRedGrid = true
                             }
