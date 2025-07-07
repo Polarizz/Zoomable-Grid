@@ -37,7 +37,7 @@ struct ContentView: View {
     private let threeGridScale: CGFloat = 5.0 / 3.0 // ~1.667
     private let resistanceMinScale: CGFloat = 0.95 // Minimum scale when zooming out with resistance
     private let gridTransitionThreshold: CGFloat = 1.3 // Scale at which grids transition
-    private let gridTransitionFadeRange: CGFloat = 0.2 // Range over which fade happens
+    private let gridTransitionFadeRange: CGFloat = 0.6 // Range over which fade happens
     private let velocityThreshold: CGFloat = 0.1 // Minimum velocity for snap decisions
     private let snapThreshold: CGFloat = 1.1 // Scale threshold for snapping to 3-grid
     private let maxBlurRadius: CGFloat = 10.0 // Maximum blur radius during transitions
@@ -61,6 +61,8 @@ struct ContentView: View {
     @State private var redGridOpacity: Double = 0.0
     @State private var blueGridBlur: Double = 0.0
     @State private var redGridBlur: Double = 0.0
+    @State private var gestureStarted: Bool = false
+    @State private var initialTargetRedGridItem: Int? = nil
 
     let columns = [
         GridItem(.flexible(), spacing: 3),
@@ -109,16 +111,9 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .onChange(of: showRedGrid) { newValue in
-                            if !newValue && itemToMaintainOnZoomOut != nil {
-                                // Blue grid is becoming visible, scroll to maintained item
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    if let item = itemToMaintainOnZoomOut {
-                                        print("Blue grid scrolling to maintained item: \(item)")
-                                        blueScrollProxy.scrollTo(item, anchor: .center)
-                                        itemToMaintainOnZoomOut = nil
-                                    }
-                                }
+                        .onChange(of: itemToMaintainOnZoomOut) { newValue in
+                            if let item = newValue, !showRedGrid {
+                                blueScrollProxy.scrollTo(item, anchor: .center)
                             }
                         }
                     }
@@ -128,8 +123,6 @@ struct ContentView: View {
                 .scaleEffect(currentScale, anchor: anchor)
                 .opacity(blueGridOpacity)
                 .blur(radius: blueGridBlur)
-                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridOpacity)
-                .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridBlur)
 
                 // 3-column red grid overlay
                 ScrollView {
@@ -174,21 +167,13 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .padding(3)
                         .onAppear {
-                            // Immediately scroll to the target item when red grid appears
-                            print("Red grid appeared, scrolling to target item: \(targetRedGridItem)")
-                            DispatchQueue.main.async {
-                                scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
-                            }
+                            // Scroll to target item without delay
+                            scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
                         }
-                        .onChange(of: showRedGrid) { newValue in
-                            if newValue {
-                                // Ensure scroll happens after grid is visible
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    print("Red grid visible, scrolling to target item: \(targetRedGridItem)")
-                                    scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
-                                }
+                        .onChange(of: targetRedGridItem) { newValue in
+                            if showRedGrid {
+                                scrollProxy.scrollTo(newValue, anchor: .center)
                             }
                         }
                     }
@@ -199,15 +184,23 @@ struct ContentView: View {
                 .scaleEffect(redGridTargetScale, anchor: anchor)
                 .opacity(redGridOpacity)
                 .blur(radius: redGridBlur)
-                .animation(.interactiveSpring(response: 0.39, dampingFraction: 0.9), value: redGridOpacity)
-                .animation(.interactiveSpring(response: 0.39, dampingFraction: 0.9), value: redGridBlur)
             }
             .gesture(
                 MagnificationGesture()
                     .simultaneously(with: DragGesture(minimumDistance: 0))
                     .onChanged { value in
                         if let magnification = value.first {
-                            lastMagnification = currentScale
+                            // Capture initial state when gesture starts
+                            if !gestureStarted {
+                                gestureStarted = true
+                                lastMagnification = currentScale
+                                
+                                // Pre-calculate target item for red grid if zooming in
+                                if finalScale <= fiveGridScale && magnification > 1.0 {
+                                    initialTargetRedGridItem = centerVisibleItem
+                                    print("Gesture started - pre-calculated target item: \(initialTargetRedGridItem ?? -1)")
+                                }
+                            }
 
                             // Calculate raw scale first
                             let rawScale = finalScale * magnification
@@ -217,21 +210,17 @@ struct ContentView: View {
                                 // Check if we started from above 1.0 or at 1.0
                                 let baseScale = min(finalScale, fiveGridScale)
 
-                                // Maximum zoom out is to resistanceMinScale
-                                let maxZoomOut = baseScale - resistanceMinScale
-
-                                // Calculate zoom out progress from base scale
-                                let currentZoomOut = baseScale - rawScale
-                                let maxPossibleZoomOut = baseScale * (1.0 - magnification)
-                                let zoomProgress = currentZoomOut / maxPossibleZoomOut
-
-                                // Apply sqrt to create resistance
-                                let resistedProgress = sqrt(zoomProgress)
-
-                                // Scale to our maximum zoom out range
-                                let actualZoomOut = resistedProgress * maxZoomOut
-
-                                currentScale = baseScale - actualZoomOut
+                                // Calculate how much we're trying to zoom out
+                                let zoomOutAmount = 1.0 - magnification
+                                
+                                // Apply exponential resistance curve
+                                let resistanceFactor = pow(zoomOutAmount, 2.5)
+                                
+                                // Calculate the resisted scale
+                                let resistedScale = baseScale * (1.0 - (zoomOutAmount * 0.05 * resistanceFactor))
+                                
+                                // Ensure we don't go below minimum
+                                currentScale = max(resistedScale, resistanceMinScale)
                             } else {
                                 // Normal scaling when above scale 1.0
                                 currentScale = rawScale
@@ -259,11 +248,11 @@ struct ContentView: View {
                                 redGridBlur = (1.0 - progress) * maxBlurRadius
                             }
 
-                            // Capture target item when transitioning
+                            // Use pre-calculated target item or update based on transition
                             if redGridOpacity > 0.3 && !showRedGrid {
-                                targetRedGridItem = centerVisibleItem
+                                targetRedGridItem = initialTargetRedGridItem ?? centerVisibleItem
                                 showRedGrid = true
-                                print("Capturing target item for red grid: \(targetRedGridItem)")
+                                print("Using target item for red grid: \(targetRedGridItem)")
                             } else if redGridOpacity < 0.3 && showRedGrid {
                                 itemToMaintainOnZoomOut = redGridCenterItem
                                 showRedGrid = false
@@ -302,6 +291,8 @@ struct ContentView: View {
                     .onEnded { value in
                         isZooming = false
                         finalScale = currentScale
+                        gestureStarted = false
+                        initialTargetRedGridItem = nil
 
                         // Calculate velocity (change in scale)
                         let velocity = currentScale - lastMagnification
@@ -378,8 +369,12 @@ struct ContentView: View {
                         }
                     }
             )
-            .animation(.smooth(duration: 0.24), value: currentScale)
-            .animation(.smooth(duration: 0.39), value: redGridTargetScale)
+            .animation(isZooming ? nil : .smooth(duration: 0.24), value: currentScale)
+            .animation(isZooming ? nil : .smooth(duration: 0.39), value: redGridTargetScale)
+            .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridOpacity)
+            .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridOpacity)
+            .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridBlur)
+            .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridBlur)
         }
         .ignoresSafeArea()
         .onAppear {
