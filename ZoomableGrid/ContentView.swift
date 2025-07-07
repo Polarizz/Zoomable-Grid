@@ -7,6 +7,20 @@
 
 import SwiftUI
 
+struct GridItemData {
+    let color: Color
+    let aspectRatio: CGFloat // width/height ratio
+    
+    static func generateRandomItem() -> GridItemData {
+        let colors: [Color] = [.red, .blue, .green, .orange, .purple, .pink, .yellow, .indigo, .teal, .cyan, .mint, .brown]
+        
+        return GridItemData(
+            color: colors.randomElement() ?? .blue,
+            aspectRatio: CGFloat.random(in: 0.5...2.0) // From tall to wide rectangles
+        )
+    }
+}
+
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -15,6 +29,9 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 }
 
 struct ContentView: View {
+    // Grid item data
+    @State private var gridItemsData: [Int: GridItemData] = [:]
+    
     // Constants for zoom behavior
     private let fiveGridScale: CGFloat = 1.0
     private let threeGridScale: CGFloat = 5.0 / 3.0 // ~1.667
@@ -44,7 +61,7 @@ struct ContentView: View {
     @State private var redGridOpacity: Double = 0.0
     @State private var blueGridBlur: Double = 0.0
     @State private var redGridBlur: Double = 0.0
-    
+
     let columns = [
         GridItem(.flexible(), spacing: 3),
         GridItem(.flexible(), spacing: 3),
@@ -52,8 +69,8 @@ struct ContentView: View {
         GridItem(.flexible(), spacing: 3),
         GridItem(.flexible(), spacing: 3)
     ]
-    
-    
+
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -62,26 +79,36 @@ struct ContentView: View {
                     ScrollViewReader { blueScrollProxy in
                         LazyVGrid(columns: columns, spacing: 3) {
                             ForEach(0..<200) { item in
-                                Rectangle()
-                                    .fill(Color.blue)
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .overlay(
-                                        Text("\(item)")
-                                            .foregroundColor(.white)
-                                            .font(.caption)
-                                    )
-                                    .id(item)
-                                    .onAppear {
-                                        visibleItems.insert(item)
-                                        updateCenterFromVisibleItems()
+                                ZStack {
+                                    if let itemData = gridItemsData[item] {
+                                        GeometryReader { geo in
+                                            RoundedRectangle(cornerRadius: 7)
+                                                .fill(itemData.color)
+                                                .aspectRatio(itemData.aspectRatio, contentMode: .fit)
+                                                .frame(maxWidth: geo.size.width - 8, maxHeight: geo.size.height - 8)
+                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                                        }
                                     }
-                                    .onDisappear {
-                                        visibleItems.remove(item)
-                                        updateCenterFromVisibleItems()
-                                    }
+                                    
+                                    Text("\(item)")
+                                        .foregroundColor(.white)
+                                        .font(.caption)
+                                        .padding(4)
+                                        .background(Color.black.opacity(0.6))
+                                        .cornerRadius(4)
+                                }
+                                .aspectRatio(1, contentMode: .fit)
+                                .id(item)
+                                .onAppear {
+                                    visibleItems.insert(item)
+                                    updateCenterFromVisibleItems()
+                                }
+                                .onDisappear {
+                                    visibleItems.remove(item)
+                                    updateCenterFromVisibleItems()
+                                }
                             }
                         }
-                        .padding(3)
                         .onChange(of: showRedGrid) { newValue in
                             if !newValue && itemToMaintainOnZoomOut != nil {
                                 // Blue grid is becoming visible, scroll to maintained item
@@ -96,64 +123,77 @@ struct ContentView: View {
                         }
                     }
                 }
+                .scrollClipDisabled(true)
                 .scrollDisabled(isZooming)
                 .scaleEffect(currentScale, anchor: anchor)
                 .opacity(blueGridOpacity)
                 .blur(radius: blueGridBlur)
                 .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridOpacity)
                 .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: blueGridBlur)
-                
+
                 // 3-column red grid overlay
                 ScrollView {
                     ScrollViewReader { scrollProxy in
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), spacing: 3),
-                                GridItem(.flexible(), spacing: 3),
-                                GridItem(.flexible(), spacing: 3)
-                            ], spacing: 3) {
-                                ForEach(0..<200) { item in
-                                    Rectangle()
-                                        .fill(item == targetRedGridItem ? Color.green : Color.red)
-                                        .aspectRatio(1, contentMode: .fit)
-                                        .overlay(
-                                            Text("\(item)")
-                                                .foregroundColor(.white)
-                                                .font(.caption)
-                                        )
-                                        .id(item)
-                                        .onAppear {
-                                            if redGridOpacity > 0.5 {
-                                                redGridVisibleItems.insert(item)
-                                                updateRedGridCenterItem()
-                                            }
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 3),
+                            GridItem(.flexible(), spacing: 3),
+                            GridItem(.flexible(), spacing: 3)
+                        ], spacing: 3) {
+                            ForEach(0..<200) { item in
+                                ZStack {
+                                    if let itemData = gridItemsData[item] {
+                                        GeometryReader { geo in
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .fill(itemData.color)
+                                                .aspectRatio(itemData.aspectRatio, contentMode: .fit)
+                                                .frame(maxWidth: geo.size.width - 8, maxHeight: geo.size.height - 8)
+                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
                                         }
-                                        .onDisappear {
-                                            redGridVisibleItems.remove(item)
-                                            if redGridOpacity > 0.5 {
-                                                updateRedGridCenterItem()
-                                            }
-                                        }
+                                    }
+                                    
+                                    Text("\(item)")
+                                        .foregroundColor(.white)
+                                        .font(.caption)
+                                        .padding(4)
+                                        .background(Color.black.opacity(0.6))
+                                        .cornerRadius(4)
                                 }
-                            }
-                            .padding(3)
-                            .onAppear {
-                                // Immediately scroll to the target item when red grid appears
-                                print("Red grid appeared, scrolling to target item: \(targetRedGridItem)")
-                                DispatchQueue.main.async {
-                                    scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
+                                .aspectRatio(1, contentMode: .fit)
+                                .id(item)
+                                .onAppear {
+                                    if redGridOpacity > 0.5 {
+                                        redGridVisibleItems.insert(item)
+                                        updateRedGridCenterItem()
+                                    }
                                 }
-                            }
-                            .onChange(of: showRedGrid) { newValue in
-                                if newValue {
-                                    // Ensure scroll happens after grid is visible
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        print("Red grid visible, scrolling to target item: \(targetRedGridItem)")
-                                        scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
+                                .onDisappear {
+                                    redGridVisibleItems.remove(item)
+                                    if redGridOpacity > 0.5 {
+                                        updateRedGridCenterItem()
                                     }
                                 }
                             }
                         }
+                        .padding(3)
+                        .onAppear {
+                            // Immediately scroll to the target item when red grid appears
+                            print("Red grid appeared, scrolling to target item: \(targetRedGridItem)")
+                            DispatchQueue.main.async {
+                                scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
+                            }
+                        }
+                        .onChange(of: showRedGrid) { newValue in
+                            if newValue {
+                                // Ensure scroll happens after grid is visible
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    print("Red grid visible, scrolling to target item: \(targetRedGridItem)")
+                                    scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
+                                }
+                            }
+                        }
                     }
+                }
+                .scrollClipDisabled(true)
                 .scrollDisabled(isZooming || redGridOpacity < 0.5)
                 .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
                 .scaleEffect(redGridTargetScale, anchor: anchor)
@@ -168,36 +208,36 @@ struct ContentView: View {
                     .onChanged { value in
                         if let magnification = value.first {
                             lastMagnification = currentScale
-                            
+
                             // Calculate raw scale first
                             let rawScale = finalScale * magnification
-                            
+
                             // Apply resistance when at or below scale 1.0, regardless of starting point
                             if rawScale <= fiveGridScale && magnification < 1.0 {
                                 // Check if we started from above 1.0 or at 1.0
                                 let baseScale = min(finalScale, fiveGridScale)
-                                
+
                                 // Maximum zoom out is to resistanceMinScale
                                 let maxZoomOut = baseScale - resistanceMinScale
-                                
+
                                 // Calculate zoom out progress from base scale
                                 let currentZoomOut = baseScale - rawScale
                                 let maxPossibleZoomOut = baseScale * (1.0 - magnification)
                                 let zoomProgress = currentZoomOut / maxPossibleZoomOut
-                                
+
                                 // Apply sqrt to create resistance
                                 let resistedProgress = sqrt(zoomProgress)
-                                
+
                                 // Scale to our maximum zoom out range
                                 let actualZoomOut = resistedProgress * maxZoomOut
-                                
+
                                 currentScale = baseScale - actualZoomOut
                             } else {
                                 // Normal scaling when above scale 1.0
                                 currentScale = rawScale
                             }
                             isZooming = magnification != 1.0
-                            
+
                             // Update grid visibility during zoom
                             // Calculate opacity and blur based on scale
                             if currentScale < gridTransitionThreshold - gridTransitionFadeRange/2 {
@@ -218,7 +258,7 @@ struct ContentView: View {
                                 blueGridBlur = progress * maxBlurRadius
                                 redGridBlur = (1.0 - progress) * maxBlurRadius
                             }
-                            
+
                             // Capture target item when transitioning
                             if redGridOpacity > 0.3 && !showRedGrid {
                                 targetRedGridItem = centerVisibleItem
@@ -229,15 +269,15 @@ struct ContentView: View {
                                 showRedGrid = false
                                 print("Zooming out - maintaining position for item: \(redGridCenterItem)")
                             }
-                            
+
                             // Update red grid scale during gesture
                             redGridTargetScale = currentScale * 3 / 5
                         }
                         if let location = value.second?.startLocation {
                             var x = location.x / geometry.size.width
                             var y = location.y / geometry.size.height
-                            
-                            
+
+
                             // Force anchor to be left, center, or right
                             if x < 0.33 {
                                 x = 0.0
@@ -246,14 +286,14 @@ struct ContentView: View {
                             } else {
                                 x = 0.5
                             }
-                            
+
                             // For vertical, allow edge snapping
                             if y < 0.25 {
                                 y = 0.0
                             } else if y > 0.75 {
                                 y = 1.0
                             }
-                            
+
                             if finalScale == fiveGridScale {
                                 anchor = UnitPoint(x: x, y: y)
                             }
@@ -262,14 +302,14 @@ struct ContentView: View {
                     .onEnded { value in
                         isZooming = false
                         finalScale = currentScale
-                        
+
                         // Calculate velocity (change in scale)
                         let velocity = currentScale - lastMagnification
-                        
+
                         // Determine target scale based on velocity and current scale
                         var targetScale: CGFloat = fiveGridScale
                         var targetAnchor = anchor
-                        
+
                         if abs(velocity) > velocityThreshold { // If there's significant velocity
                             if velocity > 0 && currentScale > 1.1 { // Zooming in
                                 targetScale = threeGridScale
@@ -284,12 +324,12 @@ struct ContentView: View {
                                 targetScale = fiveGridScale
                             }
                         }
-                        
+
                         // Calculate anchor for 3-column view
                         if targetScale == threeGridScale {
                             // Determine which anchor to use based on current position
                             let anchorX: CGFloat
-                            
+
                             if anchor.x < 0.33 {
                                 // Left third - anchor to left edge
                                 anchorX = 0.0
@@ -300,7 +340,7 @@ struct ContentView: View {
                                 // Middle third - anchor to center
                                 anchorX = 0.5
                             }
-                            
+
                             // For vertical, keep current position unless at edges
                             let anchorY: CGFloat
                             if anchor.y <= 0.0 || anchor.y >= 1.0 {
@@ -308,18 +348,18 @@ struct ContentView: View {
                             } else {
                                 anchorY = anchor.y
                             }
-                            
+
                             targetAnchor = UnitPoint(x: anchorX, y: anchorY)
                         } else {
                             // Return to normal view
                             targetAnchor = .center
                         }
-                        
+
                         withAnimation(.smooth(duration: 0.39)) {
                             currentScale = targetScale
                             finalScale = targetScale
                             anchor = targetAnchor
-                            
+
                             // Set final opacity and blur values
                             if targetScale == fiveGridScale {
                                 blueGridOpacity = 1.0
@@ -342,12 +382,18 @@ struct ContentView: View {
             .animation(.smooth(duration: 0.39), value: redGridTargetScale)
         }
         .ignoresSafeArea()
+        .onAppear {
+            // Generate one random rectangle per grid item
+            for i in 0..<200 {
+                gridItemsData[i] = GridItemData.generateRandomItem()
+            }
+        }
     }
-    
+
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
         let baseX = geometry.size.width / 2
         let baseY = geometry.size.height / 2
-        
+
         // Adjust position based on anchor
         var offsetX: CGFloat = 0
         if anchor.x <= 0.0 {
@@ -358,16 +404,16 @@ struct ContentView: View {
             offsetX = geometry.size.width * 1 / 5
         }
         // Center anchor (0.5) needs no offset
-        
+
         return CGPoint(x: baseX + offsetX, y: baseY)
     }
-    
+
     func updateCenterFromVisibleItems() {
         guard !visibleItems.isEmpty else { return }
-        
+
         // Get all visible items sorted
         let sortedItems = visibleItems.sorted()
-        
+
         // Group items by row
         var rowGroups: [Int: [Int]] = [:]
         for item in sortedItems {
@@ -377,33 +423,33 @@ struct ContentView: View {
             }
             rowGroups[row]?.append(item)
         }
-        
+
         // Find the middle row
         let sortedRows = rowGroups.keys.sorted()
         guard !sortedRows.isEmpty else { return }
-        
+
         let middleRowIndex = sortedRows.count / 2
         let middleRow = sortedRows[middleRowIndex]
-        
+
         // Get the middle item from the middle row (prefer column 2)
         if let rowItems = rowGroups[middleRow] {
             // Try to find column 2 (middle column) in this row
             let targetItem = middleRow * 5 + 2
             let newCenterItem = rowItems.contains(targetItem) ? targetItem : rowItems[rowItems.count / 2]
-            
+
             if newCenterItem != centerVisibleItem {
                 centerVisibleItem = newCenterItem
                 print("Center visible item updated to: \(newCenterItem) (row: \(middleRow))")
             }
         }
     }
-    
+
     func updateRedGridCenterItem() {
         guard !redGridVisibleItems.isEmpty else { return }
-        
+
         // Get all visible items sorted
         let sortedItems = redGridVisibleItems.sorted()
-        
+
         // Group items by row
         var rowGroups: [Int: [Int]] = [:]
         for item in sortedItems {
@@ -413,35 +459,35 @@ struct ContentView: View {
             }
             rowGroups[row]?.append(item)
         }
-        
+
         // Find the middle row
         let sortedRows = rowGroups.keys.sorted()
         guard !sortedRows.isEmpty else { return }
-        
+
         let middleRowIndex = sortedRows.count / 2
         let middleRow = sortedRows[middleRowIndex]
-        
+
         // Get the middle item from the middle row (prefer column 1 - middle column)
         if let rowItems = rowGroups[middleRow] {
             // Try to find column 1 (middle column) in this row
             let targetItem = middleRow * 3 + 1
             let newCenterItem = rowItems.contains(targetItem) ? targetItem : rowItems[rowItems.count / 2]
-            
+
             if newCenterItem != redGridCenterItem {
                 redGridCenterItem = newCenterItem
                 print("Red grid center item updated to: \(newCenterItem) (row: \(middleRow))")
             }
         }
     }
-    
+
     func updateRedGridScroll(scrollProxy: ScrollViewProxy, geometry: GeometryProxy) {
         // Simply scroll to the same item that's at the center of the blue grid
         let targetItem = centerVisibleItem
         print("Scrolling red grid to item: \(targetItem)")
-        
+
         // Try without animation first to see if it works
         scrollProxy.scrollTo(targetItem, anchor: .center)
-        
+
         // Then animate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             withAnimation(.easeInOut(duration: 0.3)) {
