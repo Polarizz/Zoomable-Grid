@@ -35,7 +35,8 @@ struct ContentView: View {
     // Constants for zoom behavior
     private let fiveGridScale: CGFloat = 1.0
     private let threeGridScale: CGFloat = 5.0 / 3.0 // ~1.667
-    private let resistanceMinScale: CGFloat = 0.95 // Minimum scale when zooming out with resistance
+    private let resistanceMinScale: CGFloat = 0.7 // Soft minimum scale when zooming out with resistance
+    private let resistanceMaxScale: CGFloat = 2.1 // Soft maximum scale when zooming in with resistance
     private let gridTransitionThreshold: CGFloat = 1.3 // Scale at which grids transition
     private let gridTransitionFadeRange: CGFloat = 0.6 // Range over which fade happens
     private let velocityThreshold: CGFloat = 0.05 // Minimum velocity for snap decisions
@@ -119,7 +120,7 @@ struct ContentView: View {
                                         expandedFromFiveGrid = true
                                         overlayOpacity = 0.0
                                         overlayBlur = 0.0
-                                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
                                             overlayOpacity = 1.0
                                         }
@@ -184,7 +185,7 @@ struct ContentView: View {
                                         expandedFromFiveGrid = false
                                         overlayOpacity = 0.0
                                         overlayBlur = 0.0
-                                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
                                             overlayOpacity = 1.0
                                         }
@@ -243,24 +244,48 @@ struct ContentView: View {
                         // Calculate raw scale first
                         let rawScale = finalScale * magnification
 
-                        // Apply resistance when at or below scale 1.0, regardless of starting point
-                        if rawScale <= fiveGridScale && magnification < 1.0 {
-                            // Check if we started from above 1.0 or at 1.0
-                            let baseScale = min(finalScale, fiveGridScale)
-
-                            // Calculate how much we're trying to zoom out
-                            let zoomOutAmount = 1.0 - magnification
+                        // Smooth resistance for zooming out below 5-grid scale
+                        if magnification < 1.0 && finalScale <= fiveGridScale + 0.1 {
+                            let effectiveBase = min(finalScale, fiveGridScale)
+                            let targetScale = effectiveBase * magnification
                             
-                            // Apply exponential resistance curve
-                            let resistanceFactor = pow(zoomOutAmount, 2.5)
+                            if targetScale < fiveGridScale {
+                                // How far below 1.0 we're trying to go (0 to 1)
+                                let overshoot = (fiveGridScale - targetScale) / fiveGridScale
+                                
+                                // Smooth exponential resistance that increases gradually
+                                let resistance = 1.0 - exp(-overshoot * 3.0)
+                                
+                                // Apply resistance smoothly
+                                currentScale = fiveGridScale - (fiveGridScale - targetScale) * (1.0 - resistance * 0.7)
+                            } else {
+                                currentScale = targetScale
+                            }
+                        }
+                        // Smooth resistance for zooming in (both from 5-grid to 3-grid AND beyond 3-grid)
+                        else if magnification > 1.0 {
+                            let targetScale = finalScale * magnification
                             
-                            // Calculate the resisted scale
-                            let resistedScale = baseScale * (1.0 - (zoomOutAmount * 0.05 * resistanceFactor))
-                            
-                            // Ensure we don't go below minimum
-                            currentScale = max(resistedScale, resistanceMinScale)
+                            // Check if we're approaching or exceeding the 3-grid scale
+                            if targetScale > threeGridScale - 0.1 {
+                                // How far beyond 3-grid we're trying to go (can be negative if approaching)
+                                let overshoot = max(0, (targetScale - threeGridScale) / threeGridScale)
+                                
+                                if overshoot > 0 {
+                                    // Smooth exponential resistance that increases gradually
+                                    let resistance = 1.0 - exp(-overshoot * 3.0)
+                                    
+                                    // Apply resistance smoothly
+                                    currentScale = threeGridScale + (targetScale - threeGridScale) * (1.0 - resistance * 0.7)
+                                } else {
+                                    // Approaching 3-grid but not exceeding - allow normal scaling
+                                    currentScale = targetScale
+                                }
+                            } else {
+                                currentScale = targetScale
+                            }
                         } else {
-                            // Normal scaling when above scale 1.0
+                            // Normal scaling when zooming out in the middle range
                             currentScale = rawScale
                         }
 
