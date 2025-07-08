@@ -38,8 +38,8 @@ struct ContentView: View {
     private let resistanceMinScale: CGFloat = 0.95 // Minimum scale when zooming out with resistance
     private let gridTransitionThreshold: CGFloat = 1.3 // Scale at which grids transition
     private let gridTransitionFadeRange: CGFloat = 0.6 // Range over which fade happens
-    private let velocityThreshold: CGFloat = 0.1 // Minimum velocity for snap decisions
-    private let snapThreshold: CGFloat = 1.1 // Scale threshold for snapping to 3-grid
+    private let velocityThreshold: CGFloat = 0.05 // Minimum velocity for snap decisions
+    private let snapThreshold: CGFloat = 1.05 // Scale threshold for snapping to 3-grid
     private let maxBlurRadius: CGFloat = 10.0 // Maximum blur radius during transitions
 
     @State private var currentScale: CGFloat = 1.0
@@ -224,110 +224,82 @@ struct ContentView: View {
                 .opacity(redGridOpacity)
                 .blur(radius: redGridBlur)
             }
-            .gesture(
-                MagnificationGesture()
-                    .simultaneously(with: DragGesture(minimumDistance: 0))
-                    .onChanged { value in
-                        if let magnification = value.first {
-                            // Capture initial state when gesture starts
-                            if !gestureStarted {
-                                gestureStarted = true
-                                lastMagnification = currentScale
-                                
-                                // Pre-calculate target item for red grid if zooming in
-                                if finalScale <= fiveGridScale && magnification > 1.0 {
-                                    initialTargetRedGridItem = centerVisibleItem
-                                    print("Gesture started - pre-calculated target item: \(initialTargetRedGridItem ?? -1)")
-                                }
-                            }
-
-                            // Calculate raw scale first
-                            let rawScale = finalScale * magnification
-
-                            // Apply resistance when at or below scale 1.0, regardless of starting point
-                            if rawScale <= fiveGridScale && magnification < 1.0 {
-                                // Check if we started from above 1.0 or at 1.0
-                                let baseScale = min(finalScale, fiveGridScale)
-
-                                // Calculate how much we're trying to zoom out
-                                let zoomOutAmount = 1.0 - magnification
-                                
-                                // Apply exponential resistance curve
-                                let resistanceFactor = pow(zoomOutAmount, 2.5)
-                                
-                                // Calculate the resisted scale
-                                let resistedScale = baseScale * (1.0 - (zoomOutAmount * 0.05 * resistanceFactor))
-                                
-                                // Ensure we don't go below minimum
-                                currentScale = max(resistedScale, resistanceMinScale)
-                            } else {
-                                // Normal scaling when above scale 1.0
-                                currentScale = rawScale
-                            }
-                            isZooming = magnification != 1.0
-
-                            // Update grid visibility during zoom
-                            // Calculate opacity and blur based on scale
-                            if currentScale < gridTransitionThreshold - gridTransitionFadeRange/2 {
-                                blueGridOpacity = 1.0
-                                redGridOpacity = 0.0
-                                blueGridBlur = 0.0
-                                redGridBlur = maxBlurRadius
-                            } else if currentScale > gridTransitionThreshold + gridTransitionFadeRange/2 {
-                                blueGridOpacity = 0.0
-                                redGridOpacity = 1.0
-                                blueGridBlur = maxBlurRadius
-                                redGridBlur = 0.0
-                            } else {
-                                // In transition zone
-                                let progress = (currentScale - (gridTransitionThreshold - gridTransitionFadeRange/2)) / gridTransitionFadeRange
-                                blueGridOpacity = 1.0 - progress
-                                redGridOpacity = progress
-                                blueGridBlur = progress * maxBlurRadius
-                                redGridBlur = (1.0 - progress) * maxBlurRadius
-                            }
-
-                            // Use pre-calculated target item or update based on transition
-                            if redGridOpacity > 0.3 && !showRedGrid {
-                                targetRedGridItem = initialTargetRedGridItem ?? centerVisibleItem
-                                showRedGrid = true
-                                print("Using target item for red grid: \(targetRedGridItem)")
-                            } else if redGridOpacity < 0.3 && showRedGrid {
-                                itemToMaintainOnZoomOut = redGridCenterItem
-                                showRedGrid = false
-                                print("Zooming out - maintaining position for item: \(redGridCenterItem)")
-                            }
-
-                            // Update red grid scale during gesture
-                            redGridTargetScale = currentScale * 3 / 5
-                        }
-                        if let location = value.second?.startLocation {
-                            var x = location.x / geometry.size.width
-                            var y = location.y / geometry.size.height
-
-
-                            // Force anchor to be left, center, or right
-                            if x < 0.33 {
-                                x = 0.0
-                            } else if x > 0.67 {
-                                x = 1.0
-                            } else {
-                                x = 0.5
-                            }
-
-                            // For vertical, allow edge snapping
-                            if y < 0.25 {
-                                y = 0.0
-                            } else if y > 0.75 {
-                                y = 1.0
-                            }
-
-                            if finalScale == fiveGridScale {
-                                anchor = UnitPoint(x: x, y: y)
+            .highPriorityGesture(
+                MagnificationGesture(minimumScaleDelta: 0)
+                    .onChanged { magnification in
+                        // Start gesture on any change
+                        if !gestureStarted {
+                            gestureStarted = true
+                            isZooming = true
+                            lastMagnification = currentScale
+                            
+                            // Pre-calculate target item for red grid if zooming in
+                            if finalScale <= fiveGridScale && magnification > 1.0 {
+                                initialTargetRedGridItem = centerVisibleItem
+                                print("Gesture started - pre-calculated target item: \(initialTargetRedGridItem ?? -1)")
                             }
                         }
+
+                        // Calculate raw scale first
+                        let rawScale = finalScale * magnification
+
+                        // Apply resistance when at or below scale 1.0, regardless of starting point
+                        if rawScale <= fiveGridScale && magnification < 1.0 {
+                            // Check if we started from above 1.0 or at 1.0
+                            let baseScale = min(finalScale, fiveGridScale)
+
+                            // Calculate how much we're trying to zoom out
+                            let zoomOutAmount = 1.0 - magnification
+                            
+                            // Apply exponential resistance curve
+                            let resistanceFactor = pow(zoomOutAmount, 2.5)
+                            
+                            // Calculate the resisted scale
+                            let resistedScale = baseScale * (1.0 - (zoomOutAmount * 0.05 * resistanceFactor))
+                            
+                            // Ensure we don't go below minimum
+                            currentScale = max(resistedScale, resistanceMinScale)
+                        } else {
+                            // Normal scaling when above scale 1.0
+                            currentScale = rawScale
+                        }
+
+                        // Update grid visibility during zoom
+                        // Calculate opacity and blur based on scale
+                        if currentScale < gridTransitionThreshold - gridTransitionFadeRange/2 {
+                            blueGridOpacity = 1.0
+                            redGridOpacity = 0.0
+                            blueGridBlur = 0.0
+                            redGridBlur = maxBlurRadius
+                        } else if currentScale > gridTransitionThreshold + gridTransitionFadeRange/2 {
+                            blueGridOpacity = 0.0
+                            redGridOpacity = 1.0
+                            blueGridBlur = maxBlurRadius
+                            redGridBlur = 0.0
+                        } else {
+                            // In transition zone
+                            let progress = (currentScale - (gridTransitionThreshold - gridTransitionFadeRange/2)) / gridTransitionFadeRange
+                            blueGridOpacity = 1.0 - progress
+                            redGridOpacity = progress
+                            blueGridBlur = progress * maxBlurRadius
+                            redGridBlur = (1.0 - progress) * maxBlurRadius
+                        }
+
+                        // Use pre-calculated target item or update based on transition
+                        if redGridOpacity > 0.3 && !showRedGrid {
+                            targetRedGridItem = initialTargetRedGridItem ?? centerVisibleItem
+                            showRedGrid = true
+                            print("Using target item for red grid: \(targetRedGridItem)")
+                        } else if redGridOpacity < 0.3 && showRedGrid {
+                            itemToMaintainOnZoomOut = redGridCenterItem
+                            showRedGrid = false
+                            print("Zooming out - maintaining position for item: \(redGridCenterItem)")
+                        }
+
+                        // Update red grid scale during gesture
+                        redGridTargetScale = currentScale * 3 / 5
                     }
-                    .onEnded { value in
+                    .onEnded { _ in
                         isZooming = false
                         finalScale = currentScale
                         gestureStarted = false
@@ -338,52 +310,24 @@ struct ContentView: View {
 
                         // Determine target scale based on velocity and current scale
                         var targetScale: CGFloat = fiveGridScale
-                        var targetAnchor = anchor
 
                         if abs(velocity) > velocityThreshold { // If there's significant velocity
-                            if velocity > 0 && currentScale > 1.1 { // Zooming in
+                            if velocity > 0 && currentScale > 1.02 { // Zooming in - very low threshold
                                 targetScale = threeGridScale
                             } else { // Zooming out or small scale
                                 targetScale = fiveGridScale
                             }
                         } else { // No significant velocity, snap to nearest
-                            // Snap happens at snapThreshold
-                            if currentScale >= snapThreshold {
+                            // Very low snap threshold
+                            if currentScale >= 1.02 {
                                 targetScale = threeGridScale
                             } else {
                                 targetScale = fiveGridScale
                             }
                         }
 
-                        // Calculate anchor for 3-column view
-                        if targetScale == threeGridScale {
-                            // Determine which anchor to use based on current position
-                            let anchorX: CGFloat
-
-                            if anchor.x < 0.33 {
-                                // Left third - anchor to left edge
-                                anchorX = 0.0
-                            } else if anchor.x > 0.67 {
-                                // Right third - anchor to right edge
-                                anchorX = 1.0
-                            } else {
-                                // Middle third - anchor to center
-                                anchorX = 0.5
-                            }
-
-                            // For vertical, keep current position unless at edges
-                            let anchorY: CGFloat
-                            if anchor.y <= 0.0 || anchor.y >= 1.0 {
-                                anchorY = 0.5
-                            } else {
-                                anchorY = anchor.y
-                            }
-
-                            targetAnchor = UnitPoint(x: anchorX, y: anchorY)
-                        } else {
-                            // Return to normal view
-                            targetAnchor = .center
-                        }
+                        // Set anchor to center for simplicity
+                        let targetAnchor: UnitPoint = targetScale == threeGridScale ? anchor : .center
 
                         withAnimation(.smooth(duration: 0.39)) {
                             currentScale = targetScale
