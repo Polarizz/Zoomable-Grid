@@ -63,6 +63,19 @@ struct ContentView: View {
     @State private var redGridBlur: Double = 0.0
     @State private var gestureStarted: Bool = false
     @State private var initialTargetRedGridItem: Int? = nil
+    
+    // Expansion states
+    @State private var selectedItem: Int? = nil
+    @State private var showFullscreen: Bool = false
+    @State private var expandedFromFiveGrid: Bool = true
+    @State private var selectedItemFrame: CGRect = .zero
+    @State private var itemFrames: [Int: CGRect] = [:]
+    @State private var overlayOpacity: Double = 0.0
+    @State private var overlayBlur: Double = 0.0
+    
+    // Namespaces for animations
+    @Namespace private var fiveGridNamespace
+    @Namespace private var threeGridNamespace
 
     let columns = [
         GridItem(.flexible(), spacing: 3),
@@ -81,23 +94,36 @@ struct ContentView: View {
                     ScrollViewReader { blueScrollProxy in
                         LazyVGrid(columns: columns, spacing: 3) {
                             ForEach(0..<200) { item in
-                                ZStack {
-                                    if let itemData = gridItemsData[item] {
-                                        GeometryReader { geo in
+                                GeometryReader { itemGeo in
+                                    ZStack {
+                                        if let itemData = gridItemsData[item] {
                                             RoundedRectangle(cornerRadius: 7)
                                                 .fill(itemData.color)
                                                 .aspectRatio(itemData.aspectRatio, contentMode: .fit)
-                                                .frame(maxWidth: geo.size.width - 8, maxHeight: geo.size.height - 8)
-                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                                                .frame(maxWidth: itemGeo.size.width - 8, maxHeight: itemGeo.size.height - 8)
+                                                .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                        }
+                                        
+                                        Text("\(item)")
+                                            .foregroundColor(.white)
+                                            .font(.caption)
+                                            .padding(4)
+                                            .background(Color.black.opacity(0.6))
+                                            .cornerRadius(4)
+                                            .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                    }
+                                    .onTapGesture {
+                                        let globalFrame = itemGeo.frame(in: .global)
+                                        selectedItemFrame = globalFrame
+                                        selectedItem = item
+                                        expandedFromFiveGrid = true
+                                        overlayOpacity = 0.0
+                                        overlayBlur = 0.0
+                                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                                            showFullscreen = true
+                                            overlayOpacity = 1.0
                                         }
                                     }
-                                    
-                                    Text("\(item)")
-                                        .foregroundColor(.white)
-                                        .font(.caption)
-                                        .padding(4)
-                                        .background(Color.black.opacity(0.6))
-                                        .cornerRadius(4)
                                 }
                                 .aspectRatio(1, contentMode: .fit)
                                 .id(item)
@@ -133,23 +159,36 @@ struct ContentView: View {
                             GridItem(.flexible(), spacing: 3)
                         ], spacing: 3) {
                             ForEach(0..<200) { item in
-                                ZStack {
-                                    if let itemData = gridItemsData[item] {
-                                        GeometryReader { geo in
+                                GeometryReader { itemGeo in
+                                    ZStack {
+                                        if let itemData = gridItemsData[item] {
                                             RoundedRectangle(cornerRadius: 10)
                                                 .fill(itemData.color)
                                                 .aspectRatio(itemData.aspectRatio, contentMode: .fit)
-                                                .frame(maxWidth: geo.size.width - 8, maxHeight: geo.size.height - 8)
-                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                                                .frame(maxWidth: itemGeo.size.width - 8, maxHeight: itemGeo.size.height - 8)
+                                                .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                        }
+                                        
+                                        Text("\(item)")
+                                            .foregroundColor(.white)
+                                            .font(.caption)
+                                            .padding(4)
+                                            .background(Color.black.opacity(0.6))
+                                            .cornerRadius(4)
+                                            .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                    }
+                                    .onTapGesture {
+                                        let globalFrame = itemGeo.frame(in: .global)
+                                        selectedItemFrame = globalFrame
+                                        selectedItem = item
+                                        expandedFromFiveGrid = false
+                                        overlayOpacity = 0.0
+                                        overlayBlur = 0.0
+                                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                                            showFullscreen = true
+                                            overlayOpacity = 1.0
                                         }
                                     }
-                                    
-                                    Text("\(item)")
-                                        .foregroundColor(.white)
-                                        .font(.caption)
-                                        .padding(4)
-                                        .background(Color.black.opacity(0.6))
-                                        .cornerRadius(4)
                                 }
                                 .aspectRatio(1, contentMode: .fit)
                                 .id(item)
@@ -375,6 +414,73 @@ struct ContentView: View {
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridOpacity)
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridBlur)
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridBlur)
+            
+            // Fullscreen overlay
+            if let item = selectedItem, let itemData = gridItemsData[item] {
+                ZStack {
+                    // Background
+                    Color.black.opacity(showFullscreen ? 0.9 : 0)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                overlayBlur = 10.0
+                                overlayOpacity = 0.0
+                            }
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                showFullscreen = false
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                selectedItem = nil
+                            }
+                        }
+                    
+                    // Expanded square
+                    GeometryReader { geo in
+                        let finalSize = min(geo.size.width - 40, (geo.size.height - 40) / itemData.aspectRatio) * itemData.aspectRatio
+                        let finalWidth = finalSize / itemData.aspectRatio
+                        let finalHeight = finalSize
+                        
+                        RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
+                            .fill(itemData.color)
+                            .frame(
+                                width: showFullscreen ? finalWidth : selectedItemFrame.width,
+                                height: showFullscreen ? finalHeight : selectedItemFrame.height
+                            )
+                            .position(
+                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            )
+                            .onTapGesture {
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    overlayBlur = 10.0
+                                    overlayOpacity = 0.0
+                                }
+                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                    showFullscreen = false
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                    selectedItem = nil
+                                }
+                            }
+                        
+                        Text("\(item)")
+                            .foregroundColor(.white)
+                            .font(showFullscreen ? .title : .caption)
+                            .padding(showFullscreen ? 8 : 4)
+                            .background(Color.black.opacity(0.6))
+                            .cornerRadius(showFullscreen ? 8 : 4)
+                            .position(
+                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            )
+                            .opacity(showFullscreen ? 1 : 0)
+                    }
+                }
+                .opacity(overlayOpacity)
+                .blur(radius: overlayBlur)
+                .zIndex(1000)
+                .allowsHitTesting(showFullscreen || overlayOpacity > 0.1)
+            }
         }
         .ignoresSafeArea()
         .onAppear {
