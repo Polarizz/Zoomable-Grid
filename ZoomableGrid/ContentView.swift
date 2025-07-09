@@ -97,7 +97,7 @@ struct ContentView: View {
                 ScrollView {
                     ScrollViewReader { blueScrollProxy in
                         LazyVGrid(columns: columns, spacing: 3) {
-                            ForEach(0..<200) { item in
+                            ForEach(0..<1000) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
                                         if let itemData = gridItemsData[item] {
@@ -166,7 +166,7 @@ struct ContentView: View {
                             GridItem(.flexible(), spacing: 3),
                             GridItem(.flexible(), spacing: 3)
                         ], spacing: 3) {
-                            ForEach(0..<200) { item in
+                            ForEach(0..<1000) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
                                         if let itemData = gridItemsData[item] {
@@ -248,56 +248,39 @@ struct ContentView: View {
                             // Pre-calculate target item for red grid if zooming in
                             if finalScale <= fiveGridScale && magnification > 1.0 {
                                 initialTargetRedGridItem = centerVisibleItem
-                                print("Gesture started - pre-calculated target item: \(initialTargetRedGridItem ?? -1)")
                             }
                         }
 
                         // Calculate raw scale first
                         let rawScale = finalScale * magnification
 
-                        // Smooth resistance for zooming out below 5-grid scale
-                        if magnification < 1.0 && finalScale <= fiveGridScale + 0.1 {
-                            let effectiveBase = min(finalScale, fiveGridScale)
-                            let targetScale = effectiveBase * magnification
+                        // Apply resistance based on scale values, independent of grid state
+                        let targetScale = finalScale * magnification
+                        
+                        // Resistance for zooming out when 5-grid scale < 1.0
+                        if targetScale < fiveGridScale {
+                            // How far below 1.0 we're trying to go (0 to 1)
+                            let overshoot = (fiveGridScale - targetScale) / fiveGridScale
                             
-                            if targetScale < fiveGridScale {
-                                // How far below 1.0 we're trying to go (0 to 1)
-                                let overshoot = (fiveGridScale - targetScale) / fiveGridScale
-                                
-                                // Smooth exponential resistance that increases gradually
-                                let resistance = 1.0 - exp(-overshoot * 3.0)
-                                
-                                // Apply resistance smoothly
-                                currentScale = fiveGridScale - (fiveGridScale - targetScale) * (1.0 - resistance * 0.7)
-                            } else {
-                                currentScale = targetScale
-                            }
+                            // Smooth exponential resistance that increases gradually
+                            let resistance = 1.0 - exp(-overshoot * 3.0)
+                            
+                            // Apply resistance smoothly
+                            currentScale = fiveGridScale - (fiveGridScale - targetScale) * (1.0 - resistance * 0.7)
                         }
-                        // Smooth resistance for zooming in (both from 5-grid to 3-grid AND beyond 3-grid)
-                        else if magnification > 1.0 {
-                            let targetScale = finalScale * magnification
+                        // Resistance for zooming in when 3-grid scale > 1.0
+                        else if targetScale > threeGridScale {
+                            // How far beyond 3-grid scale we're trying to go
+                            let overshoot = (targetScale - threeGridScale) / threeGridScale
                             
-                            // Check if we're approaching or exceeding the 3-grid scale
-                            if targetScale > threeGridScale - 0.1 {
-                                // How far beyond 3-grid we're trying to go (can be negative if approaching)
-                                let overshoot = max(0, (targetScale - threeGridScale) / threeGridScale)
-                                
-                                if overshoot > 0 {
-                                    // Smooth exponential resistance that increases gradually
-                                    let resistance = 1.0 - exp(-overshoot * 3.0)
-                                    
-                                    // Apply resistance smoothly
-                                    currentScale = threeGridScale + (targetScale - threeGridScale) * (1.0 - resistance * 0.7)
-                                } else {
-                                    // Approaching 3-grid but not exceeding - allow normal scaling
-                                    currentScale = targetScale
-                                }
-                            } else {
-                                currentScale = targetScale
-                            }
+                            // Smooth exponential resistance that increases gradually
+                            let resistance = 1.0 - exp(-overshoot * 3.0)
+                            
+                            // Apply resistance smoothly
+                            currentScale = threeGridScale + (targetScale - threeGridScale) * (1.0 - resistance * 0.7)
                         } else {
-                            // Normal scaling when zooming out in the middle range
-                            currentScale = rawScale
+                            // Normal scaling in the allowed range
+                            currentScale = targetScale
                         }
 
                         // Update grid visibility during zoom
@@ -325,11 +308,9 @@ struct ContentView: View {
                         if redGridOpacity > 0.3 && !showRedGrid {
                             targetRedGridItem = initialTargetRedGridItem ?? centerVisibleItem
                             showRedGrid = true
-                            print("Using target item for red grid: \(targetRedGridItem)")
                         } else if redGridOpacity < 0.3 && showRedGrid {
                             itemToMaintainOnZoomOut = redGridCenterItem
                             showRedGrid = false
-                            print("Zooming out - maintaining position for item: \(redGridCenterItem)")
                         }
 
                         // Update red grid scale during gesture
@@ -414,7 +395,8 @@ struct ContentView: View {
                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                 showFullscreen = false
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                                 selectedItem = nil
                             }
                         }
@@ -434,7 +416,7 @@ struct ContentView: View {
                             ScrollViewReader { scrollProxy in
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     LazyHStack(spacing: 0) {
-                                        ForEach(0..<200) { index in
+                                        ForEach(0..<1000) { index in
                                             if let itemData = gridItemsData[index] {
                                                 ZStack {
                                                     let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
@@ -454,7 +436,8 @@ struct ContentView: View {
                                                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                                                 showFullscreen = false
                                                             }
-                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                            Task { @MainActor in
+                                                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                                                                 selectedItem = nil
                                                             }
                                                         }
@@ -488,29 +471,29 @@ struct ContentView: View {
                         // Animated transition square
                         if let itemData = gridItemsData[currentPageItem] {
                             RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
-                                .fill(itemData.color)
-                                .frame(
-                                    width: showFullscreen ? expandedWidth : selectedItemFrame.width,
-                                    height: showFullscreen ? expandedHeight : selectedItemFrame.height
-                                )
-                                .position(
-                                    x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                    y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                                )
-                                .opacity(showFullscreen ? 0 : 1)
-                                .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
-                            
-                            Text("\(currentPageItem)")
-                                .foregroundColor(.white)
-                                .font(showFullscreen ? .title : .caption)
-                                .padding(showFullscreen ? 8 : 4)
-                                .background(Color.black.opacity(0.6))
-                                .cornerRadius(showFullscreen ? 8 : 4)
-                                .position(
-                                    x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                    y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                                )
-                                .opacity(showFullscreen ? 0 : 1)
+                            .fill(itemData.color)
+                            .frame(
+                                width: showFullscreen ? expandedWidth : selectedItemFrame.width,
+                                height: showFullscreen ? expandedHeight : selectedItemFrame.height
+                            )
+                            .position(
+                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            )
+                            .opacity(showFullscreen ? 0 : 1)
+                            .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
+                        
+                        Text("\(currentPageItem)")
+                            .foregroundColor(.white)
+                            .font(showFullscreen ? .title : .caption)
+                            .padding(showFullscreen ? 8 : 4)
+                            .background(Color.black.opacity(0.6))
+                            .cornerRadius(showFullscreen ? 8 : 4)
+                            .position(
+                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            )
+                            .opacity(showFullscreen ? 0 : 1)
                                 .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
                         }
                     }
@@ -522,7 +505,7 @@ struct ContentView: View {
         .ignoresSafeArea()
         .onAppear {
             // Generate one random rectangle per grid item
-            for i in 0..<200 {
+            for i in 0..<1000 {
                 gridItemsData[i] = GridItemData.generateRandomItem()
             }
         }
@@ -577,7 +560,6 @@ struct ContentView: View {
 
             if newCenterItem != centerVisibleItem {
                 centerVisibleItem = newCenterItem
-                print("Center visible item updated to: \(newCenterItem) (row: \(middleRow))")
             }
         }
     }
@@ -613,24 +595,8 @@ struct ContentView: View {
 
             if newCenterItem != redGridCenterItem {
                 redGridCenterItem = newCenterItem
-                print("Red grid center item updated to: \(newCenterItem) (row: \(middleRow))")
             }
         }
     }
 
-    func updateRedGridScroll(scrollProxy: ScrollViewProxy, geometry: GeometryProxy) {
-        // Simply scroll to the same item that's at the center of the blue grid
-        let targetItem = centerVisibleItem
-        print("Scrolling red grid to item: \(targetItem)")
-
-        // Try without animation first to see if it works
-        scrollProxy.scrollTo(targetItem, anchor: .center)
-
-        // Then animate
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                scrollProxy.scrollTo(targetItem, anchor: .center)
-            }
-        }
-    }
 }
