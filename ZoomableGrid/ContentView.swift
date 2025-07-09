@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import PhotosUI
+import Photos
 
 struct SeededRandomNumberGenerator: RandomNumberGenerator {
     private var seed: UInt64
@@ -22,24 +24,68 @@ struct SeededRandomNumberGenerator: RandomNumberGenerator {
     }
 }
 
-struct GridItemData {
-    let imageName: String
-    let aspectRatio: CGFloat // width/height ratio
+struct GridItemData: Identifiable {
+    let id: String
+    let asset: PHAsset?
+    let image: UIImage?
+    let aspectRatio: CGFloat
     
-    static func generateRandomItem(for index: Int) -> GridItemData {
-        let imageNames = ["LR-1787", "LR-1788", "LR-1789"]
+    init(asset: PHAsset) {
+        self.id = asset.localIdentifier
+        self.asset = asset
+        self.image = nil
+        self.aspectRatio = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
+    }
+    
+    init(image: UIImage, id: String) {
+        self.id = id
+        self.asset = nil
+        self.image = image
+        self.aspectRatio = image.size.width / image.size.height
+    }
+}
+
+struct PhotoGridImage: View {
+    let itemData: GridItemData
+    let targetSize: CGSize
+    let contentMode: ContentMode
+    @State private var loadedImage: UIImage?
+    
+    private let imageManager = PHImageManager.default()
+    
+    var body: some View {
+        Group {
+            if let image = loadedImage ?? itemData.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                Image(systemName: "photo")
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.gray.opacity(0.1))
+            }
+        }
+        .onAppear {
+            loadImageIfNeeded()
+        }
+    }
+    
+    private func loadImageIfNeeded() {
+        guard loadedImage == nil, let asset = itemData.asset else { return }
         
-        // Simple hash function for better distribution
-        let hash = (index &* 2654435761) % imageNames.count
-        let imageIndex = abs(hash)
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = false
         
-        // All images appear to be photos, so using standard photo aspect ratio
-        let aspectRatio: CGFloat = 1.0
-        
-        return GridItemData(
-            imageName: imageNames[imageIndex],
-            aspectRatio: aspectRatio
-        )
+        imageManager.requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, _ in
+            if let image = image {
+                DispatchQueue.main.async {
+                    self.loadedImage = image
+                }
+            }
+        }
     }
 }
 
@@ -51,8 +97,15 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 }
 
 struct ContentView: View {
-    // Grid item data
-    @State private var gridItemsData: [Int: GridItemData] = [:]
+    // Photo library data
+    @State private var photos: [GridItemData] = []
+    @State private var authorizationStatus: PHAuthorizationStatus = .notDetermined
+    @State private var isLoadingPhotos: Bool = false
+    
+    // Image manager for loading photos
+    private let imageManager = PHImageManager.default()
+    private let thumbnailSize = CGSize(width: 300, height: 300)
+    private let fullImageSize = CGSize(width: 1024, height: 1024)
     
     // Grid spacing configuration - single source of truth
     private let gridSpacing: CGFloat = 2.0 // Spacing between grid items
@@ -103,11 +156,18 @@ struct ContentView: View {
     
     // Image display mode
     @State private var useImageFill: Bool = true
+    
+    // Collapse/expand state
+    @State private var isGridCollapsed: Bool = false
+    @State private var gridCollapseScale: CGFloat = 1.0
+    @State private var gridCollapseOpacity: Double = 1.0
+    @State private var collapseButtonRotation: Double = 0
  
     
     // Namespaces for animations
     @Namespace private var fiveGridNamespace
     @Namespace private var threeGridNamespace
+    @Namespace private var collapseNamespace
 
     var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 5)
@@ -121,11 +181,59 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
+                // Show loading or permission states
+                if isLoadingPhotos {
+                    VStack {
+                        ProgressView("Loading photos...")
+                            .progressViewStyle(CircularProgressViewStyle())
+                            .scaleEffect(1.5)
+                            .padding()
+                        Text("Please wait while we load your photo library")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(UIColor.systemBackground))
+                } else if authorizationStatus == .denied || authorizationStatus == .restricted {
+                    VStack(spacing: 20) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                        Text("Photo Library Access Required")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Text("Please enable photo library access in Settings to view your photos.")
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 40)
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(UIColor.systemBackground))
+                } else if photos.isEmpty && !isLoadingPhotos {
+                    VStack(spacing: 20) {
+                        Image(systemName: "photo.stack")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                        Text("No Photos Found")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Text("Your photo library appears to be empty.")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(UIColor.systemBackground))
+                } else {
+                ZStack {
                 // Original 5-column blue grid
                 ScrollView {
                     ScrollViewReader { blueScrollProxy in
                         LazyVGrid(columns: columns, spacing: gridSpacing) {
-                            ForEach(0..<9999) { item in
+                            ForEach(0..<photos.count, id: \.self) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
                                         let itemData = getItemData(for: item)
@@ -133,9 +241,7 @@ struct ContentView: View {
                                             .fill(Color.clear)
                                             .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
                                             .overlay(
-                                                Image(itemData.imageName)
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                                PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
                                                     .cornerRadius(useImageFill ? 0 : 7)
                                             )
                                             .clipShape(RoundedRectangle(cornerRadius: 7))
@@ -164,7 +270,7 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .onChange(of: itemToMaintainOnZoomOut) { newValue in
+                        .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
                             if let item = newValue, !showRedGrid {
                                 blueScrollProxy.scrollTo(item, anchor: .center)
                             }
@@ -181,7 +287,7 @@ struct ContentView: View {
                 ScrollView {
                     ScrollViewReader { scrollProxy in
                         LazyVGrid(columns: threeColumns, spacing: gridSpacing) {
-                            ForEach(0..<9999) { item in
+                            ForEach(0..<photos.count, id: \.self) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
                                         let itemData = getItemData(for: item)
@@ -189,9 +295,7 @@ struct ContentView: View {
                                             .fill(Color.clear)
                                             .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
                                             .overlay(
-                                                Image(itemData.imageName)
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                                PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
                                                     .cornerRadius(useImageFill ? 0 : 10)
                                             )
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -228,7 +332,7 @@ struct ContentView: View {
                             // Scroll to target item without delay
                             scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
                         }
-                        .onChange(of: targetRedGridItem) { newValue in
+                        .onChange(of: targetRedGridItem) { _, newValue in
                             if showRedGrid {
                                 scrollProxy.scrollTo(newValue, anchor: .center)
                             }
@@ -241,7 +345,12 @@ struct ContentView: View {
                 .scaleEffect(redGridTargetScale, anchor: anchor)
                 .opacity(redGridOpacity)
                 .blur(radius: redGridBlur)
+                }
+                .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
+                .opacity(gridCollapseOpacity)
+                .allowsHitTesting(!isGridCollapsed)
             }
+                } // End of else block for photo states
             .highPriorityGesture(
                 MagnificationGesture(minimumScaleDelta: 0)
                     .onChanged { magnification in
@@ -258,7 +367,7 @@ struct ContentView: View {
                         }
 
                         // Calculate raw scale first
-                        let rawScale = finalScale * magnification
+                        _ = finalScale * magnification
 
                         // Apply resistance based on scale values, independent of grid state
                         let targetScale = finalScale * magnification
@@ -419,16 +528,14 @@ struct ContentView: View {
                                     LazyHStack(spacing: 0) {
                                         // Only render items within a range to improve performance
                                         let startIndex = max(0, item - 50)
-                                        let endIndex = min(9999, item + 50)
-                                        ForEach(startIndex..<endIndex) { index in
+                                        let endIndex = min(photos.count, item + 50)
+                                        ForEach(startIndex..<endIndex, id: \.self) { index in
                                             let itemData = getItemData(for: index)
                                                 ZStack {
                                                     let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
                                                     let itemHeight = itemWidth * itemData.aspectRatio
                                                     
-                                                    Image(itemData.imageName)
-                                                        .resizable()
-                                                        .aspectRatio(contentMode: .fit)
+                                                    PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: .fit)
                                                         .cornerRadius(expandedFromFiveGrid ? 7 : 10)
                                                         .frame(width: itemWidth, height: itemHeight)
                                                         .onTapGesture {
@@ -470,9 +577,7 @@ struct ContentView: View {
                                 height: showFullscreen ? expandedHeight : selectedItemFrame.height
                             )
                             .overlay(
-                                Image(itemData.imageName)
-                                    .resizable()
-                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: useImageFill ? .fill : .fit)
                                     .cornerRadius(useImageFill ? 0 : (expandedFromFiveGrid ? 7 : 10))
                             )
                             .clipShape(RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10))
@@ -492,42 +597,95 @@ struct ContentView: View {
             VStack {
                 Spacer()
                 HStack {
-                    Spacer()
+                    // Collapse button in bottom left
                     Button(action: {
-                        withAnimation(.smooth(duration: 0.3)) {
-                            useImageFill.toggle()
+                        withAnimation(.smooth(duration: 0.5, extraBounce: 0.2)) {
+                            isGridCollapsed.toggle()
+                            gridCollapseScale = isGridCollapsed ? 0.1 : 1.0
+                            gridCollapseOpacity = isGridCollapsed ? 0 : 1.0
+                            collapseButtonRotation = isGridCollapsed ? 180 : 0
                         }
                     }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: useImageFill ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
-                            Text(useImageFill ? "Fill" : "Fit")
+                        ZStack {
+                            Circle()
+                                .fill(.regularMaterial)
+                                .frame(width: 50, height: 50)
+                            
+                            Image(systemName: isGridCollapsed ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.primary)
+                                .rotationEffect(.degrees(collapseButtonRotation))
                         }
-                        .font(.system(size: 16, weight: .medium))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(.regularMaterial)
-                        .clipShape(Capsule())
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .padding(.leading, 20)
+                    .padding(.bottom, 30)
+                    .matchedGeometryEffect(id: "collapseButton", in: collapseNamespace)
+                    
+                    Spacer()
+                    
+                    VStack(spacing: 16) {
+                        // Show limited access notice if applicable
+                        if authorizationStatus == .limited && !photos.isEmpty {
+                            HStack {
+                                Image(systemName: "info.circle")
+                                Text("\(photos.count) photos available with limited access")
+                                    .font(.system(size: 14))
+                                Button("Select More") {
+                                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                       let rootViewController = windowScene.windows.first?.rootViewController {
+                                        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: rootViewController)
+                                    }
+                                }
+                                .font(.system(size: 14, weight: .medium))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(.regularMaterial)
+                            .clipShape(Capsule())
+                        }
+                        
+                        Button(action: {
+                            withAnimation(.smooth(duration: 0.3)) {
+                                useImageFill.toggle()
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: useImageFill ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                                Text(useImageFill ? "Fill" : "Fit")
+                            }
+                            .font(.system(size: 16, weight: .medium))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(.regularMaterial)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.bottom, 30)
+                    
                     Spacer()
                 }
-                .padding(.bottom, 30)
             }
         }
         .ignoresSafeArea()
         .onAppear {
-            // Don't pre-generate all items - they'll be generated on demand
+            checkPhotoLibraryAuthorization()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            // Reload photos when app becomes active in case user changed selection
+            if authorizationStatus == .limited {
+                loadPhotosFromLibrary()
+            }
         }
     }
 
     func getItemData(for index: Int) -> GridItemData {
-        if let existingData = gridItemsData[index] {
-            return existingData
+        guard index >= 0 && index < photos.count else {
+            // Return a placeholder if index is out of bounds
+            return GridItemData(image: UIImage(systemName: "photo")!, id: "placeholder-\(index)")
         }
-        // Generate and cache the data
-        let newData = GridItemData.generateRandomItem(for: index)
-        gridItemsData[index] = newData
-        return newData
+        return photos[index]
     }
     
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
@@ -615,6 +773,53 @@ struct ContentView: View {
             if newCenterItem != redGridCenterItem {
                 redGridCenterItem = newCenterItem
             }
+        }
+    }
+    
+    // MARK: - Photo Library Methods
+    
+    func checkPhotoLibraryAuthorization() {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        authorizationStatus = status
+        
+        switch status {
+        case .authorized, .limited:
+            loadPhotosFromLibrary()
+        case .notDetermined:
+            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                DispatchQueue.main.async {
+                    self.authorizationStatus = newStatus
+                    if newStatus == .authorized || newStatus == .limited {
+                        self.loadPhotosFromLibrary()
+                    }
+                }
+            }
+        case .denied, .restricted:
+            // Handle denied access - user will see empty grid
+            break
+        @unknown default:
+            break
+        }
+    }
+    
+    func loadPhotosFromLibrary() {
+        isLoadingPhotos = true
+        
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
+        
+        let fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+        
+        var loadedPhotos: [GridItemData] = []
+        
+        fetchResult.enumerateObjects { asset, _, _ in
+            loadedPhotos.append(GridItemData(asset: asset))
+        }
+        
+        DispatchQueue.main.async {
+            self.photos = loadedPhotos
+            self.isLoadingPhotos = false
         }
     }
 
