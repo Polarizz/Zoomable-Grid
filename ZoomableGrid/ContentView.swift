@@ -7,16 +7,38 @@
 
 import SwiftUI
 
+struct SeededRandomNumberGenerator: RandomNumberGenerator {
+    private var seed: UInt64
+    
+    init(seed: Int) {
+        // Better seed initialization to avoid clustering with small indices
+        self.seed = UInt64(bitPattern: Int64(seed &* 2654435761))
+    }
+    
+    mutating func next() -> UInt64 {
+        // Linear congruential generator with better parameters
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        return seed
+    }
+}
+
 struct GridItemData {
-    let color: Color
+    let imageName: String
     let aspectRatio: CGFloat // width/height ratio
     
-    static func generateRandomItem() -> GridItemData {
-        let colors: [Color] = [.red, .blue, .green, .orange, .purple, .pink, .yellow, .indigo, .teal, .cyan, .mint, .brown]
+    static func generateRandomItem(for index: Int) -> GridItemData {
+        let imageNames = ["LR-1787", "LR-1788", "LR-1789"]
+        
+        // Simple hash function for better distribution
+        let hash = (index &* 2654435761) % imageNames.count
+        let imageIndex = abs(hash)
+        
+        // All images appear to be photos, so using standard photo aspect ratio
+        let aspectRatio: CGFloat = 1.0
         
         return GridItemData(
-            color: colors.randomElement() ?? .blue,
-            aspectRatio: CGFloat.random(in: 0.5...2.0) // From tall to wide rectangles
+            imageName: imageNames[imageIndex],
+            aspectRatio: aspectRatio
         )
     }
 }
@@ -32,6 +54,10 @@ struct ContentView: View {
     // Grid item data
     @State private var gridItemsData: [Int: GridItemData] = [:]
     
+    // Grid spacing configuration - single source of truth
+    private let gridSpacing: CGFloat = 2.0 // Spacing between grid items
+    private let itemPadding: CGFloat = 0.0 // Padding inside each grid item
+
     // Constants for zoom behavior
     private let fiveGridScale: CGFloat = 1.0
     private let threeGridScale: CGFloat = 5.0 / 3.0 // ~1.667
@@ -74,20 +100,22 @@ struct ContentView: View {
     @State private var overlayOpacity: Double = 0.0
     @State private var overlayBlur: Double = 0.0
     @State private var currentPageItem: Int = 0
-    @State private var blueGridItemFrames: [Int: CGRect] = [:]
-    @State private var redGridItemFrames: [Int: CGRect] = [:] 
+    
+    // Image display mode
+    @State private var useImageFill: Bool = true
+ 
     
     // Namespaces for animations
     @Namespace private var fiveGridNamespace
     @Namespace private var threeGridNamespace
 
-    let columns = [
-        GridItem(.flexible(), spacing: 3),
-        GridItem(.flexible(), spacing: 3),
-        GridItem(.flexible(), spacing: 3),
-        GridItem(.flexible(), spacing: 3),
-        GridItem(.flexible(), spacing: 3)
-    ]
+    var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 5)
+    }
+    
+    var threeColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 3)
+    }
 
 
     var body: some View {
@@ -96,24 +124,21 @@ struct ContentView: View {
                 // Original 5-column blue grid
                 ScrollView {
                     ScrollViewReader { blueScrollProxy in
-                        LazyVGrid(columns: columns, spacing: 3) {
-                            ForEach(0..<1000) { item in
+                        LazyVGrid(columns: columns, spacing: gridSpacing) {
+                            ForEach(0..<9999) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
-                                        if let itemData = gridItemsData[item] {
-                                            RoundedRectangle(cornerRadius: 7)
-                                                .fill(itemData.color)
-                                                .aspectRatio(itemData.aspectRatio, contentMode: .fit)
-                                                .frame(maxWidth: itemGeo.size.width - 8, maxHeight: itemGeo.size.height - 8)
-                                                .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                        }
-                                        
-                                        Text("\(item)")
-                                            .foregroundColor(.white)
-                                            .font(.caption)
-                                            .padding(4)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(4)
+                                        let itemData = getItemData(for: item)
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .fill(Color.clear)
+                                            .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
+                                            .overlay(
+                                                Image(itemData.imageName)
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                                    .cornerRadius(useImageFill ? 0 : 7)
+                                            )
+                                            .clipShape(RoundedRectangle(cornerRadius: 7))
                                             .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
                                     }
                                     .onTapGesture {
@@ -125,12 +150,6 @@ struct ContentView: View {
                                         withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
                                         }
-                                    }
-                                    .onAppear {
-                                        blueGridItemFrames[item] = itemGeo.frame(in: .global)
-                                    }
-                                    .onChange(of: itemGeo.frame(in: .global)) { newFrame in
-                                        blueGridItemFrames[item] = newFrame
                                     }
                                 }
                                 .aspectRatio(1, contentMode: .fit)
@@ -161,28 +180,21 @@ struct ContentView: View {
                 // 3-column red grid overlay
                 ScrollView {
                     ScrollViewReader { scrollProxy in
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 3),
-                            GridItem(.flexible(), spacing: 3),
-                            GridItem(.flexible(), spacing: 3)
-                        ], spacing: 3) {
-                            ForEach(0..<1000) { item in
+                        LazyVGrid(columns: threeColumns, spacing: gridSpacing) {
+                            ForEach(0..<9999) { item in
                                 GeometryReader { itemGeo in
                                     ZStack {
-                                        if let itemData = gridItemsData[item] {
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(itemData.color)
-                                                .aspectRatio(itemData.aspectRatio, contentMode: .fit)
-                                                .frame(maxWidth: itemGeo.size.width - 8, maxHeight: itemGeo.size.height - 8)
-                                                .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                        }
-                                        
-                                        Text("\(item)")
-                                            .foregroundColor(.white)
-                                            .font(.caption)
-                                            .padding(4)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(4)
+                                        let itemData = getItemData(for: item)
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(Color.clear)
+                                            .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
+                                            .overlay(
+                                                Image(itemData.imageName)
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                                    .cornerRadius(useImageFill ? 0 : 10)
+                                            )
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
                                             .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
                                     }
                                     .onTapGesture {
@@ -194,12 +206,6 @@ struct ContentView: View {
                                         withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
                                         }
-                                    }
-                                    .onAppear {
-                                        redGridItemFrames[item] = itemGeo.frame(in: .global)
-                                    }
-                                    .onChange(of: itemGeo.frame(in: .global)) { newFrame in
-                                        redGridItemFrames[item] = newFrame
                                     }
                                 }
                                 .aspectRatio(1, contentMode: .fit)
@@ -385,12 +391,7 @@ struct ContentView: View {
                         .ignoresSafeArea()
                         .animation(.easeInOut(duration: 0.3), value: showFullscreen)
                         .onTapGesture {
-                            // Update selectedItemFrame to current page item's frame
-                            if expandedFromFiveGrid {
-                                selectedItemFrame = blueGridItemFrames[currentPageItem] ?? selectedItemFrame
-                            } else {
-                                selectedItemFrame = redGridItemFrames[currentPageItem] ?? selectedItemFrame
-                            }
+                            // Keep the existing frame for animation back
                             
                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                 showFullscreen = false
@@ -407,7 +408,7 @@ struct ContentView: View {
                         let maxHeight = geo.size.height - 100
                         
                         // Calculate expanded size based on current page item
-                        let expandedItemData = gridItemsData[currentPageItem] ?? gridItemsData[item]!
+                        let expandedItemData = getItemData(for: currentPageItem)
                         let expandedWidth = min(maxWidth, maxHeight / expandedItemData.aspectRatio)
                         let expandedHeight = expandedWidth * expandedItemData.aspectRatio
                         
@@ -416,22 +417,22 @@ struct ContentView: View {
                             ScrollViewReader { scrollProxy in
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     LazyHStack(spacing: 0) {
-                                        ForEach(0..<1000) { index in
-                                            if let itemData = gridItemsData[index] {
+                                        // Only render items within a range to improve performance
+                                        let startIndex = max(0, item - 50)
+                                        let endIndex = min(9999, item + 50)
+                                        ForEach(startIndex..<endIndex) { index in
+                                            let itemData = getItemData(for: index)
                                                 ZStack {
                                                     let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
                                                     let itemHeight = itemWidth * itemData.aspectRatio
                                                     
-                                                    RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
-                                                        .fill(itemData.color)
+                                                    Image(itemData.imageName)
+                                                        .resizable()
+                                                        .aspectRatio(contentMode: .fit)
+                                                        .cornerRadius(expandedFromFiveGrid ? 7 : 10)
                                                         .frame(width: itemWidth, height: itemHeight)
                                                         .onTapGesture {
-                                                            // Update selectedItemFrame to current page item's frame
-                                                            if expandedFromFiveGrid {
-                                                                selectedItemFrame = blueGridItemFrames[currentPageItem] ?? selectedItemFrame
-                                                            } else {
-                                                                selectedItemFrame = redGridItemFrames[currentPageItem] ?? selectedItemFrame
-                                                            }
+                                                            // Keep the existing frame for animation back
                                                             
                                                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                                                 showFullscreen = false
@@ -441,13 +442,6 @@ struct ContentView: View {
                                                                 selectedItem = nil
                                                             }
                                                         }
-                                                    
-                                                    Text("\(index)")
-                                                        .foregroundColor(.white)
-                                                        .font(.title)
-                                                        .padding(8)
-                                                        .background(Color.black.opacity(0.6))
-                                                        .cornerRadius(8)
                                                 }
                                                 .frame(width: geo.size.width, height: geo.size.height)
                                                 .id(index)
@@ -456,7 +450,6 @@ struct ContentView: View {
                                                         currentPageItem = index
                                                     }
                                                 }
-                                            }
                                         }
                                     }
                                 }
@@ -469,48 +462,74 @@ struct ContentView: View {
                         }
                         
                         // Animated transition square
-                        if let itemData = gridItemsData[currentPageItem] {
-                            RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
-                            .fill(itemData.color)
+                        let itemData = getItemData(for: currentPageItem)
+                        RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
+                            .fill(Color.clear)
                             .frame(
                                 width: showFullscreen ? expandedWidth : selectedItemFrame.width,
                                 height: showFullscreen ? expandedHeight : selectedItemFrame.height
                             )
-                            .position(
-                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            .overlay(
+                                Image(itemData.imageName)
+                                    .resizable()
+                                    .aspectRatio(contentMode: useImageFill ? .fill : .fit)
+                                    .cornerRadius(useImageFill ? 0 : (expandedFromFiveGrid ? 7 : 10))
                             )
+                            .clipShape(RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10))
+                        .position(
+                            x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                            y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                        )
                             .opacity(showFullscreen ? 0 : 1)
                             .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
-                        
-                        Text("\(currentPageItem)")
-                            .foregroundColor(.white)
-                            .font(showFullscreen ? .title : .caption)
-                            .padding(showFullscreen ? 8 : 4)
-                            .background(Color.black.opacity(0.6))
-                            .cornerRadius(showFullscreen ? 8 : 4)
-                            .position(
-                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                            )
-                            .opacity(showFullscreen ? 0 : 1)
-                                .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
-                        }
                     }
                 }
                 .zIndex(1000)
                 .allowsHitTesting(selectedItem != nil)
             }
+            
+            // Toggle overlay at the bottom
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        withAnimation(.smooth(duration: 0.3)) {
+                            useImageFill.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: useImageFill ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            Text(useImageFill ? "Fill" : "Fit")
+                        }
+                        .font(.system(size: 16, weight: .medium))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(.regularMaterial)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Spacer()
+                }
+                .padding(.bottom, 30)
+            }
         }
         .ignoresSafeArea()
         .onAppear {
-            // Generate one random rectangle per grid item
-            for i in 0..<1000 {
-                gridItemsData[i] = GridItemData.generateRandomItem()
-            }
+            // Don't pre-generate all items - they'll be generated on demand
         }
     }
 
+    func getItemData(for index: Int) -> GridItemData {
+        if let existingData = gridItemsData[index] {
+            return existingData
+        }
+        // Generate and cache the data
+        let newData = GridItemData.generateRandomItem(for: index)
+        gridItemsData[index] = newData
+        return newData
+    }
+    
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
         let baseX = geometry.size.width / 2
         let baseY = geometry.size.height / 2
