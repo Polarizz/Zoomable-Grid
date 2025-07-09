@@ -73,6 +73,9 @@ struct ContentView: View {
     @State private var itemFrames: [Int: CGRect] = [:]
     @State private var overlayOpacity: Double = 0.0
     @State private var overlayBlur: Double = 0.0
+    @State private var currentPageItem: Int = 0
+    @State private var blueGridItemFrames: [Int: CGRect] = [:]
+    @State private var redGridItemFrames: [Int: CGRect] = [:] 
     
     // Namespaces for animations
     @Namespace private var fiveGridNamespace
@@ -117,13 +120,17 @@ struct ContentView: View {
                                         let globalFrame = itemGeo.frame(in: .global)
                                         selectedItemFrame = globalFrame
                                         selectedItem = item
+                                        currentPageItem = item
                                         expandedFromFiveGrid = true
-                                        overlayOpacity = 0.0
-                                        overlayBlur = 0.0
                                         withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
-                                            overlayOpacity = 1.0
                                         }
+                                    }
+                                    .onAppear {
+                                        blueGridItemFrames[item] = itemGeo.frame(in: .global)
+                                    }
+                                    .onChange(of: itemGeo.frame(in: .global)) { newFrame in
+                                        blueGridItemFrames[item] = newFrame
                                     }
                                 }
                                 .aspectRatio(1, contentMode: .fit)
@@ -182,13 +189,17 @@ struct ContentView: View {
                                         let globalFrame = itemGeo.frame(in: .global)
                                         selectedItemFrame = globalFrame
                                         selectedItem = item
+                                        currentPageItem = item
                                         expandedFromFiveGrid = false
-                                        overlayOpacity = 0.0
-                                        overlayBlur = 0.0
                                         withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                             showFullscreen = true
-                                            overlayOpacity = 1.0
                                         }
+                                    }
+                                    .onAppear {
+                                        redGridItemFrames[item] = itemGeo.frame(in: .global)
+                                    }
+                                    .onChange(of: itemGeo.frame(in: .global)) { newFrame in
+                                        redGridItemFrames[item] = newFrame
                                     }
                                 }
                                 .aspectRatio(1, contentMode: .fit)
@@ -385,70 +396,127 @@ struct ContentView: View {
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridBlur)
             
             // Fullscreen overlay
-            if let item = selectedItem, let itemData = gridItemsData[item] {
+            if let item = selectedItem {
                 ZStack {
                     // Background
-                    Color.black.opacity(showFullscreen ? 0.9 : 0)
+                    Color.black
+                        .opacity(showFullscreen ? 0.9 : 0)
                         .ignoresSafeArea()
+                        .animation(.easeInOut(duration: 0.3), value: showFullscreen)
                         .onTapGesture {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                overlayBlur = 10.0
-                                overlayOpacity = 0.0
+                            // Update selectedItemFrame to current page item's frame
+                            if expandedFromFiveGrid {
+                                selectedItemFrame = blueGridItemFrames[currentPageItem] ?? selectedItemFrame
+                            } else {
+                                selectedItemFrame = redGridItemFrames[currentPageItem] ?? selectedItemFrame
                             }
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                            
+                            withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                 showFullscreen = false
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 selectedItem = nil
                             }
                         }
                     
-                    // Expanded square
+                    // Animated square that transitions from grid to fullscreen
                     GeometryReader { geo in
-                        let finalSize = min(geo.size.width - 40, (geo.size.height - 40) / itemData.aspectRatio) * itemData.aspectRatio
-                        let finalWidth = finalSize / itemData.aspectRatio
-                        let finalHeight = finalSize
+                        let maxWidth = geo.size.width - 40
+                        let maxHeight = geo.size.height - 100
                         
-                        RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
-                            .fill(itemData.color)
-                            .frame(
-                                width: showFullscreen ? finalWidth : selectedItemFrame.width,
-                                height: showFullscreen ? finalHeight : selectedItemFrame.height
-                            )
-                            .position(
-                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                            )
-                            .onTapGesture {
-                                withAnimation(.easeOut(duration: 0.3)) {
-                                    overlayBlur = 10.0
-                                    overlayOpacity = 0.0
+                        // Calculate expanded size based on current page item
+                        let expandedItemData = gridItemsData[currentPageItem] ?? gridItemsData[item]!
+                        let expandedWidth = min(maxWidth, maxHeight / expandedItemData.aspectRatio)
+                        let expandedHeight = expandedWidth * expandedItemData.aspectRatio
+                        
+                        if showFullscreen {
+                            // Horizontal ScrollView with paging
+                            ScrollViewReader { scrollProxy in
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    LazyHStack(spacing: 0) {
+                                        ForEach(0..<200) { index in
+                                            if let itemData = gridItemsData[index] {
+                                                ZStack {
+                                                    let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
+                                                    let itemHeight = itemWidth * itemData.aspectRatio
+                                                    
+                                                    RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
+                                                        .fill(itemData.color)
+                                                        .frame(width: itemWidth, height: itemHeight)
+                                                        .onTapGesture {
+                                                            // Update selectedItemFrame to current page item's frame
+                                                            if expandedFromFiveGrid {
+                                                                selectedItemFrame = blueGridItemFrames[currentPageItem] ?? selectedItemFrame
+                                                            } else {
+                                                                selectedItemFrame = redGridItemFrames[currentPageItem] ?? selectedItemFrame
+                                                            }
+                                                            
+                                                            withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                                                showFullscreen = false
+                                                            }
+                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                                selectedItem = nil
+                                                            }
+                                                        }
+                                                    
+                                                    Text("\(index)")
+                                                        .foregroundColor(.white)
+                                                        .font(.title)
+                                                        .padding(8)
+                                                        .background(Color.black.opacity(0.6))
+                                                        .cornerRadius(8)
+                                                }
+                                                .frame(width: geo.size.width, height: geo.size.height)
+                                                .id(index)
+                                                .onAppear {
+                                                    if abs(Double(index) - Double(currentPageItem)) < 2 {
+                                                        currentPageItem = index
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                    showFullscreen = false
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                    selectedItem = nil
+                                .scrollTargetBehavior(.paging)
+                                .scrollTargetLayout()
+                                .onAppear {
+                                    scrollProxy.scrollTo(item, anchor: .center)
                                 }
                             }
+                        }
                         
-                        Text("\(item)")
-                            .foregroundColor(.white)
-                            .font(showFullscreen ? .title : .caption)
-                            .padding(showFullscreen ? 8 : 4)
-                            .background(Color.black.opacity(0.6))
-                            .cornerRadius(showFullscreen ? 8 : 4)
-                            .position(
-                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                            )
-                            .opacity(showFullscreen ? 1 : 0)
+                        // Animated transition square
+                        if let itemData = gridItemsData[currentPageItem] {
+                            RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
+                                .fill(itemData.color)
+                                .frame(
+                                    width: showFullscreen ? expandedWidth : selectedItemFrame.width,
+                                    height: showFullscreen ? expandedHeight : selectedItemFrame.height
+                                )
+                                .position(
+                                    x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                    y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                                )
+                                .opacity(showFullscreen ? 0 : 1)
+                                .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
+                            
+                            Text("\(currentPageItem)")
+                                .foregroundColor(.white)
+                                .font(showFullscreen ? .title : .caption)
+                                .padding(showFullscreen ? 8 : 4)
+                                .background(Color.black.opacity(0.6))
+                                .cornerRadius(showFullscreen ? 8 : 4)
+                                .position(
+                                    x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                    y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                                )
+                                .opacity(showFullscreen ? 0 : 1)
+                                .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
+                        }
                     }
                 }
-                .opacity(overlayOpacity)
-                .blur(radius: overlayBlur)
                 .zIndex(1000)
-                .allowsHitTesting(showFullscreen || overlayOpacity > 0.1)
+                .allowsHitTesting(selectedItem != nil)
             }
         }
         .ignoresSafeArea()
