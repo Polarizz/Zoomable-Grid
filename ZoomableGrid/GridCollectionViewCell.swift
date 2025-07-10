@@ -167,9 +167,24 @@ class GridCollectionViewCell: UICollectionViewCell {
                 targetSize: targetSize,
                 contentMode: .aspectFill,
                 options: options
-            ) { [weak self] image, _ in
-                guard let self = self, let image = image else { return }
-                DispatchQueue.main.async {
+            ) { [weak self] image, info in
+                guard let self = self else { return }
+                
+                // Check for errors
+                if let error = info?[PHImageErrorKey] as? Error {
+                    print("Error loading image: \(error.localizedDescription)")
+                    return
+                }
+                
+                // Check if request was cancelled
+                if let isCancelled = info?[PHImageCancelledKey] as? Bool, isCancelled {
+                    return
+                }
+                
+                // Only proceed if we have an image
+                guard let image = image else { return }
+                
+                Task { @MainActor in
                     self.imageView.image = image
                     self.placeholderImageView.isHidden = true
                     self.updateImageFrame(animated: false)

@@ -62,8 +62,10 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
         // Handle scroll to item
         if let item = scrollToItem {
             uiViewController.scrollToItem(item, animated: true)
-            DispatchQueue.main.async {
-                self.scrollToItem = nil
+            // Clear the binding after a delay to avoid state modification during view update
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                scrollToItem = nil
             }
         }
     }

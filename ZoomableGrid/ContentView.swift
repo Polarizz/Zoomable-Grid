@@ -78,9 +78,16 @@ struct PhotoGridImage: View {
         options.isNetworkAccessAllowed = true
         options.isSynchronous = false
 
-        imageManager.requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, _ in
+        imageManager.requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, info in
+            // Check for errors
+            if let error = info?[PHImageErrorKey] as? Error {
+                print("Error loading image: \(error.localizedDescription)")
+                return
+            }
+            
+            // Only proceed if we have an image
             if let image = image {
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.loadedImage = image
                 }
             }
@@ -430,28 +437,29 @@ struct ContentView: View {
                         let targetAnchor: UnitPoint = targetScale == threeGridScale ? anchor : .center
 
                         // Delay setting isZooming to false to ensure animations work
-                        DispatchQueue.main.async {
-                            self.isZooming = false
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 10_000_000) // 0.01 seconds
+                            isZooming = false
                             
                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.15)) {
-                                self.currentScale = targetScale
-                                self.finalScale = targetScale
-                                self.anchor = targetAnchor
+                                currentScale = targetScale
+                                finalScale = targetScale
+                                anchor = targetAnchor
 
                                 // Set final opacity and blur values
-                                if targetScale == self.fiveGridScale {
-                                    self.blueGridOpacity = 1.0
-                                    self.redGridOpacity = 0.0
-                                    self.blueGridBlur = 0.0
-                                    self.redGridBlur = self.maxBlurRadius
-                                    self.showRedGrid = false
+                                if targetScale == fiveGridScale {
+                                    blueGridOpacity = 1.0
+                                    redGridOpacity = 0.0
+                                    blueGridBlur = 0.0
+                                    redGridBlur = maxBlurRadius
+                                    showRedGrid = false
                                 } else {
-                                    self.blueGridOpacity = 0.0
-                                    self.redGridOpacity = 1.0
-                                    self.blueGridBlur = self.maxBlurRadius
-                                    self.redGridBlur = 0.0
-                                    self.redGridTargetScale = 1.0
-                                    self.showRedGrid = true
+                                    blueGridOpacity = 0.0
+                                    redGridOpacity = 1.0
+                                    blueGridBlur = maxBlurRadius
+                                    redGridBlur = 0.0
+                                    redGridTargetScale = 1.0
+                                    showRedGrid = true
                                 }
                             }
                         }
