@@ -63,7 +63,6 @@ struct PhotoGridImage: View {
                 Image(systemName: "photo")
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.gray.opacity(0.1))
             }
         }
         .onAppear {
@@ -97,6 +96,9 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 }
 
 struct ContentView: View {
+
+    @Environment(\.safeAreaInsets) var safeAreaInsets
+
     // Photo library data
     @State private var photos: [GridItemData] = []
     @State private var authorizationStatus: PHAuthorizationStatus = .notDetermined
@@ -248,6 +250,8 @@ struct ContentView: View {
                             anchor: anchor,
                             opacity: blueGridOpacity,
                             blur: blueGridBlur,
+                            topSafeAreaInset: safeAreaInsets.top,
+                            bottomSafeAreaInset: safeAreaInsets.bottom,
                             onItemTapped: { item, globalFrame in
                                 selectedItemFrame = globalFrame
                                 selectedItem = item
@@ -263,7 +267,6 @@ struct ContentView: View {
                             },
                             scrollToItem: $blueGridScrollToItem
                         )
-                        .ignoresSafeArea(edges: .all)
                         .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
                             if let item = newValue, !showRedGrid {
                                 blueGridScrollToItem = item
@@ -281,6 +284,8 @@ struct ContentView: View {
                             anchor: anchor,
                             opacity: redGridOpacity,
                             blur: redGridBlur,
+                            topSafeAreaInset: safeAreaInsets.top,
+                            bottomSafeAreaInset: safeAreaInsets.bottom,
                             onItemTapped: { item, globalFrame in
                                 selectedItemFrame = globalFrame
                                 selectedItem = item
@@ -298,7 +303,6 @@ struct ContentView: View {
                             },
                             scrollToItem: $redGridScrollToItem
                         )
-                        .ignoresSafeArea(edges: .all)
                         .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
                         .onAppear {
                             redGridScrollToItem = targetRedGridItem
@@ -398,8 +402,6 @@ struct ContentView: View {
                         redGridTargetScale = currentScale * 3 / 5
                     }
                     .onEnded { _ in
-                        isZooming = false
-                        finalScale = currentScale
                         gestureStarted = false
                         initialTargetRedGridItem = nil
 
@@ -427,35 +429,34 @@ struct ContentView: View {
                         // Set anchor to center for simplicity
                         let targetAnchor: UnitPoint = targetScale == threeGridScale ? anchor : .center
 
-                        withAnimation(.smooth(duration: 0.39)) {
-                            currentScale = targetScale
-                            finalScale = targetScale
-                            anchor = targetAnchor
+                        // Delay setting isZooming to false to ensure animations work
+                        DispatchQueue.main.async {
+                            self.isZooming = false
+                            
+                            withAnimation(.smooth(duration: 0.39, extraBounce: 0.15)) {
+                                self.currentScale = targetScale
+                                self.finalScale = targetScale
+                                self.anchor = targetAnchor
 
-                            // Set final opacity and blur values
-                            if targetScale == fiveGridScale {
-                                blueGridOpacity = 1.0
-                                redGridOpacity = 0.0
-                                blueGridBlur = 0.0
-                                redGridBlur = maxBlurRadius
-                                showRedGrid = false
-                            } else {
-                                blueGridOpacity = 0.0
-                                redGridOpacity = 1.0
-                                blueGridBlur = maxBlurRadius
-                                redGridBlur = 0.0
-                                redGridTargetScale = 1.0
-                                showRedGrid = true
+                                // Set final opacity and blur values
+                                if targetScale == self.fiveGridScale {
+                                    self.blueGridOpacity = 1.0
+                                    self.redGridOpacity = 0.0
+                                    self.blueGridBlur = 0.0
+                                    self.redGridBlur = self.maxBlurRadius
+                                    self.showRedGrid = false
+                                } else {
+                                    self.blueGridOpacity = 0.0
+                                    self.redGridOpacity = 1.0
+                                    self.blueGridBlur = self.maxBlurRadius
+                                    self.redGridBlur = 0.0
+                                    self.redGridTargetScale = 1.0
+                                    self.showRedGrid = true
+                                }
                             }
                         }
                     }
             )
-            .animation(isZooming ? nil : .smooth(duration: 0.24), value: currentScale)
-            .animation(isZooming ? nil : .smooth(duration: 0.39), value: redGridTargetScale)
-            .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridOpacity)
-            .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridOpacity)
-            .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridBlur)
-            .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridBlur)
 
             // Fullscreen overlay
             if let item = selectedItem {

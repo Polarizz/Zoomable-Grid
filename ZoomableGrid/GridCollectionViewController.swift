@@ -39,8 +39,16 @@ class GridCollectionViewController: UIViewController {
     
     var useImageFill: Bool = true {
         didSet {
-            collectionView?.visibleCells.forEach { cell in
-                (cell as? GridCollectionViewCell)?.useImageFill = useImageFill
+            guard oldValue != useImageFill else { return }
+            animateContentModeChange()
+        }
+    }
+    
+    private func animateContentModeChange() {
+        // Force all visible cells to update with animation
+        collectionView?.visibleCells.forEach { cell in
+            if let gridCell = cell as? GridCollectionViewCell {
+                gridCell.useImageFill = useImageFill
             }
         }
     }
@@ -48,6 +56,18 @@ class GridCollectionViewController: UIViewController {
     var isScrollEnabled: Bool = true {
         didSet {
             collectionView?.isScrollEnabled = isScrollEnabled
+        }
+    }
+    
+    var topSafeAreaInset: CGFloat = 0 {
+        didSet {
+            updateContentInsets()
+        }
+    }
+    
+    var bottomSafeAreaInset: CGFloat = 0 {
+        didSet {
+            updateContentInsets()
         }
     }
     
@@ -74,7 +94,7 @@ class GridCollectionViewController: UIViewController {
         
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.register(GridCollectionViewCell.self, forCellWithReuseIdentifier: GridCollectionViewCell.identifier)
@@ -84,6 +104,9 @@ class GridCollectionViewController: UIViewController {
         collectionView.delaysContentTouches = false
         
         view.addSubview(collectionView)
+        
+        // Apply initial content insets
+        updateContentInsets()
     }
     
     private func updateCellCornerRadius() {
@@ -91,6 +114,12 @@ class GridCollectionViewController: UIViewController {
         collectionView?.visibleCells.forEach { cell in
             (cell as? GridCollectionViewCell)?.cornerRadius = cornerRadius
         }
+    }
+    
+    private func updateContentInsets() {
+        guard let collectionView = collectionView else { return }
+        collectionView.contentInset = UIEdgeInsets(top: topSafeAreaInset, left: 0, bottom: bottomSafeAreaInset, right: 0)
+        collectionView.scrollIndicatorInsets = collectionView.contentInset
     }
     
     func scrollToItem(_ item: Int, animated: Bool = true) {
@@ -145,11 +174,22 @@ class GridCollectionViewController: UIViewController {
         // Adjust position to maintain visual anchor during scale
         let xDiff = (anchorPoint.x - 0.5) * view.bounds.width
         let yDiff = (anchorPoint.y - 0.5) * view.bounds.height
-        view.transform = CGAffineTransform(translationX: xDiff, y: yDiff)
+        let newTransform = CGAffineTransform(translationX: xDiff, y: yDiff)
             .scaledBy(x: scale, y: scale)
             .translatedBy(x: -xDiff, y: -yDiff)
         
-        view.alpha = opacity
+        // Check if we should animate (when there's a significant change and we're not actively zooming)
+        let shouldAnimate = abs(view.transform.a - newTransform.a) > 0.01 && opacity > 0.1
+        
+        if shouldAnimate {
+            UIView.animate(withDuration: 0.39, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                view.transform = newTransform
+                view.alpha = opacity
+            }
+        } else {
+            view.transform = newTransform
+            view.alpha = opacity
+        }
     }
     
 }

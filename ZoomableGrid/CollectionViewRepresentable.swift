@@ -18,6 +18,8 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
     let anchor: UnitPoint
     let opacity: Double
     let blur: Double
+    let topSafeAreaInset: CGFloat
+    let bottomSafeAreaInset: CGFloat
     
     let onItemTapped: (Int, CGRect) -> Void
     let onVisibleItemsChanged: (Set<Int>, Int) -> Void
@@ -30,6 +32,8 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
         controller.spacing = spacing
         controller.useImageFill = useImageFill
         controller.isScrollEnabled = isScrollEnabled
+        controller.topSafeAreaInset = topSafeAreaInset
+        controller.bottomSafeAreaInset = bottomSafeAreaInset
         controller.onItemTapped = onItemTapped
         controller.onVisibleItemsChanged = onVisibleItemsChanged
         
@@ -49,6 +53,8 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
         uiViewController.spacing = spacing
         uiViewController.useImageFill = useImageFill
         uiViewController.isScrollEnabled = isScrollEnabled
+        uiViewController.topSafeAreaInset = topSafeAreaInset
+        uiViewController.bottomSafeAreaInset = bottomSafeAreaInset
         
         // Apply transform for zoom
         uiViewController.applyTransform(scale: currentScale, anchor: anchor, opacity: opacity, blur: blur)
