@@ -165,6 +165,10 @@ struct ContentView: View {
     @State private var gridCollapseBlur: Double = 0.0
     @State private var gridCollapseScaleX: CGFloat = 1.0
     @State private var gridCollapseScaleY: CGFloat = 1.0
+    
+    // Staggered animation states
+    @State private var itemAnimationStates: [Int: (scale: CGFloat, opacity: Double, padding: CGFloat, offsetX: CGFloat, offsetY: CGFloat)] = [:]
+    @State private var animatingCollapse: Bool = false
 
 
     // Namespaces for animations
@@ -241,6 +245,8 @@ struct ContentView: View {
                                         GeometryReader { itemGeo in
                                             ZStack {
                                                 let itemData = getItemData(for: item)
+                                                let itemState = itemAnimationStates[item] ?? (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
+                                                
                                                 RoundedRectangle(cornerRadius: 7)
                                                     .fill(Color.clear)
                                                     .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
@@ -250,6 +256,10 @@ struct ContentView: View {
                                                     )
                                                     .clipShape(RoundedRectangle(cornerRadius: 7))
                                                     .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                                    .scaleEffect(itemState.scale)
+                                                    .opacity(itemState.opacity)
+                                                    .padding(itemState.padding)
+                                                    .offset(x: itemState.offsetX, y: itemState.offsetY)
                                             }
                                             .onTapGesture {
                                                 let globalFrame = itemGeo.frame(in: .global)
@@ -267,6 +277,10 @@ struct ContentView: View {
                                         .onAppear {
                                             visibleItems.insert(item)
                                             updateCenterFromVisibleItems()
+                                            // Initialize item animation state if not present
+                                            if itemAnimationStates[item] == nil {
+                                                itemAnimationStates[item] = (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
+                                            }
                                         }
                                         .onDisappear {
                                             visibleItems.remove(item)
@@ -351,12 +365,10 @@ struct ContentView: View {
                         .blur(radius: redGridBlur)
                     }
                     .blur(radius: gridCollapseBlur)
-                    .scaleEffect(x: gridCollapseScaleX, y: gridCollapseScaleY, anchor: .center)
+                    .scaleEffect(x: gridCollapseScaleX, y: gridCollapseScaleY, anchor: .trailing)
                     .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
                     .opacity(gridCollapseOpacity)
-                    .opacity(gridCollapseOpacity)
-                    .allowsHitTesting(!isGridCollapsed)
-                    // .matchedGeometryEffect(id: "gridContent", in: gridCollapseNamespace)
+                    .allowsHitTesting(!isGridCollapsed && !animatingCollapse)
                 } // End of else block for photo states
 
             } // End of main ZStack
@@ -616,16 +628,21 @@ struct ContentView: View {
                         }
 
                         Button(action: {
-                            let duration = isGridCollapsed ? 0.45 : 0.55
-                            withAnimation(.smooth(duration: duration, extraBounce: 0.3)) {
-                                isGridCollapsed.toggle()
-                                gridCollapseScale = isGridCollapsed ? 0.1 : 1.0
-                                gridCollapseOpacity = isGridCollapsed ? 0 : 1.0
-                                collapseButtonRotation = isGridCollapsed ? 180 : 0
-                                gridCollapseBlur = isGridCollapsed ? 30 : 0
-                                gridCollapseScaleX = isGridCollapsed ? 0.3 : 1.0
-                                gridCollapseScaleY = isGridCollapsed ? 0.5 : 1.0
+                            let targetCollapsed = !isGridCollapsed
+                            let duration = targetCollapsed ? 0.55 : 0.45
+                            
+                            // Animate grid-level effects without delay
+                            withAnimation(.smooth(duration: duration, extraBounce: 0.2)) {
+                                collapseButtonRotation = targetCollapsed ? 180 : 0
+                                gridCollapseScale = targetCollapsed ? 0.1 : 1.0
+                                gridCollapseOpacity = targetCollapsed ? 0 : 1.0
+                                gridCollapseBlur = targetCollapsed ? 30 : 0
+                                gridCollapseScaleX = targetCollapsed ? 0.3 : 1.0
+                                gridCollapseScaleY = targetCollapsed ? 0.5 : 1.0
                             }
+                            
+                            // Animate individual grid items with stagger
+                            animateGridCollapse(collapsed: targetCollapsed)
                         }) {
                             ZStack {
                                 Circle()
@@ -794,6 +811,63 @@ struct ContentView: View {
             if newCenterItem != redGridCenterItem {
                 redGridCenterItem = newCenterItem
             }
+        }
+    }
+    
+    func getStaggerDelay(for item: Int, columns: Int, reverse: Bool = false) -> Double {
+        // Use index-based delay calculation
+        let totalItems = Double(photos.count)
+        
+        if !reverse {
+            // Collapsing: animate from lower indices to higher (top-left to bottom-right)
+            let normalizedPosition = Double(item) / totalItems
+            return normalizedPosition * 0.2 // Total animation spread of 0.2 seconds
+        } else {
+            // Expanding: animate from higher indices to lower (bottom-right to top-left)
+            let normalizedPosition = Double(photos.count - 1 - item) / totalItems
+            return normalizedPosition * 0.2 // Total animation spread of 0.2 seconds
+        }
+    }
+    
+    func animateGridCollapse(collapsed: Bool) {
+        animatingCollapse = true
+        
+        // Calculate target point (bottom-left where button is)
+        let targetX: CGFloat = 20 // Left edge with some padding
+        let targetY: CGFloat = UIScreen.main.bounds.height - 80 // Bottom edge above the button
+        
+        // Animate each item with staggered delay
+        for index in 0..<photos.count {
+            // Calculate item position for offset
+            let row = index / 5
+            let col = index % 5
+            
+            // Calculate offset to move item toward target point
+            let itemCenterX = CGFloat(col) * (UIScreen.main.bounds.width / 5) + (UIScreen.main.bounds.width / 10)
+            let itemCenterY = CGFloat(row) * (UIScreen.main.bounds.width / 5) + (UIScreen.main.bounds.width / 10)
+            
+            let offsetX = collapsed ? (targetX - itemCenterX) : 0
+            let offsetY = collapsed ? (targetY - itemCenterY) : 0
+            
+            // Reverse the delay for offset animation (bottom to top)
+            let offsetDelay = getStaggerDelay(for: photos.count - 1 - index, columns: 5, reverse: !collapsed)
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + offsetDelay) {
+                withAnimation(.smooth(duration: 0.3, extraBounce: 0.1)) {
+                    if collapsed {
+                        itemAnimationStates[index] = (scale: 0.7, opacity: 0.0, padding: -5, offsetX: offsetX, offsetY: offsetY)
+                    } else {
+                        itemAnimationStates[index] = (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
+                    }
+                }
+            }
+        }
+        
+        // Mark animation as complete after all items have animated
+        let totalDelay = getStaggerDelay(for: photos.count - 1, columns: 5, reverse: !collapsed) + 0.3
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            animatingCollapse = false
+            isGridCollapsed = collapsed
         }
     }
 
