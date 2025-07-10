@@ -11,12 +11,12 @@ import Photos
 
 struct SeededRandomNumberGenerator: RandomNumberGenerator {
     private var seed: UInt64
-    
+
     init(seed: Int) {
         // Better seed initialization to avoid clustering with small indices
         self.seed = UInt64(bitPattern: Int64(seed &* 2654435761))
     }
-    
+
     mutating func next() -> UInt64 {
         // Linear congruential generator with better parameters
         seed = seed &* 6364136223846793005 &+ 1442695040888963407
@@ -29,14 +29,14 @@ struct GridItemData: Identifiable {
     let asset: PHAsset?
     let image: UIImage?
     let aspectRatio: CGFloat
-    
+
     init(asset: PHAsset) {
         self.id = asset.localIdentifier
         self.asset = asset
         self.image = nil
         self.aspectRatio = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
     }
-    
+
     init(image: UIImage, id: String) {
         self.id = id
         self.asset = nil
@@ -50,9 +50,9 @@ struct PhotoGridImage: View {
     let targetSize: CGSize
     let contentMode: ContentMode
     @State private var loadedImage: UIImage?
-    
+
     private let imageManager = PHImageManager.default()
-    
+
     var body: some View {
         Group {
             if let image = loadedImage ?? itemData.image {
@@ -70,15 +70,15 @@ struct PhotoGridImage: View {
             loadImageIfNeeded()
         }
     }
-    
+
     private func loadImageIfNeeded() {
         guard loadedImage == nil, let asset = itemData.asset else { return }
-        
+
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
         options.isSynchronous = false
-        
+
         imageManager.requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, _ in
             if let image = image {
                 DispatchQueue.main.async {
@@ -101,12 +101,12 @@ struct ContentView: View {
     @State private var photos: [GridItemData] = []
     @State private var authorizationStatus: PHAuthorizationStatus = .notDetermined
     @State private var isLoadingPhotos: Bool = false
-    
+
     // Image manager for loading photos
     private let imageManager = PHImageManager.default()
     private let thumbnailSize = CGSize(width: 300, height: 300)
     private let fullImageSize = CGSize(width: 1024, height: 1024)
-    
+
     // Grid spacing configuration - single source of truth
     private let gridSpacing: CGFloat = 2.0 // Spacing between grid items
     private let itemPadding: CGFloat = 0.0 // Padding inside each grid item
@@ -143,7 +143,7 @@ struct ContentView: View {
     @State private var redGridBlur: Double = 0.0
     @State private var gestureStarted: Bool = false
     @State private var initialTargetRedGridItem: Int? = nil
-    
+
     // Expansion states
     @State private var selectedItem: Int? = nil
     @State private var showFullscreen: Bool = false
@@ -153,26 +153,30 @@ struct ContentView: View {
     @State private var overlayOpacity: Double = 0.0
     @State private var overlayBlur: Double = 0.0
     @State private var currentPageItem: Int = 0
-    
+
     // Image display mode
     @State private var useImageFill: Bool = true
-    
+
     // Collapse/expand state
     @State private var isGridCollapsed: Bool = false
     @State private var gridCollapseScale: CGFloat = 1.0
     @State private var gridCollapseOpacity: Double = 1.0
     @State private var collapseButtonRotation: Double = 0
- 
-    
+    @State private var gridCollapseBlur: Double = 0.0
+    @State private var gridCollapseScaleX: CGFloat = 1.0
+    @State private var gridCollapseScaleY: CGFloat = 1.0
+
+
     // Namespaces for animations
     @Namespace private var fiveGridNamespace
     @Namespace private var threeGridNamespace
     @Namespace private var collapseNamespace
+    @Namespace private var gridCollapseNamespace
 
     var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 5)
     }
-    
+
     var threeColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 3)
     }
@@ -228,129 +232,134 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(UIColor.systemBackground))
                 } else {
-                ZStack {
-                // Original 5-column blue grid
-                ScrollView {
-                    ScrollViewReader { blueScrollProxy in
-                        LazyVGrid(columns: columns, spacing: gridSpacing) {
-                            ForEach(0..<photos.count, id: \.self) { item in
-                                GeometryReader { itemGeo in
-                                    ZStack {
-                                        let itemData = getItemData(for: item)
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(Color.clear)
-                                            .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
-                                            .overlay(
-                                                PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
-                                                    .cornerRadius(useImageFill ? 0 : 7)
-                                            )
-                                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                                            .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                    }
-                                    .onTapGesture {
-                                        let globalFrame = itemGeo.frame(in: .global)
-                                        selectedItemFrame = globalFrame
-                                        selectedItem = item
-                                        currentPageItem = item
-                                        expandedFromFiveGrid = true
-                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                            showFullscreen = true
+                    ZStack {
+                        // Original 5-column blue grid
+                        ScrollView {
+                            ScrollViewReader { blueScrollProxy in
+                                LazyVGrid(columns: columns, spacing: gridSpacing) {
+                                    ForEach(0..<photos.count, id: \.self) { item in
+                                        GeometryReader { itemGeo in
+                                            ZStack {
+                                                let itemData = getItemData(for: item)
+                                                RoundedRectangle(cornerRadius: 7)
+                                                    .fill(Color.clear)
+                                                    .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
+                                                    .overlay(
+                                                        PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
+                                                            .cornerRadius(useImageFill ? 0 : 7)
+                                                    )
+                                                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                                                    .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                            }
+                                            .onTapGesture {
+                                                let globalFrame = itemGeo.frame(in: .global)
+                                                selectedItemFrame = globalFrame
+                                                selectedItem = item
+                                                currentPageItem = item
+                                                expandedFromFiveGrid = true
+                                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                                    showFullscreen = true
+                                                }
+                                            }
+                                        }
+                                        .aspectRatio(1, contentMode: .fit)
+                                        .id(item)
+                                        .onAppear {
+                                            visibleItems.insert(item)
+                                            updateCenterFromVisibleItems()
+                                        }
+                                        .onDisappear {
+                                            visibleItems.remove(item)
+                                            updateCenterFromVisibleItems()
                                         }
                                     }
                                 }
-                                .aspectRatio(1, contentMode: .fit)
-                                .id(item)
-                                .onAppear {
-                                    visibleItems.insert(item)
-                                    updateCenterFromVisibleItems()
-                                }
-                                .onDisappear {
-                                    visibleItems.remove(item)
-                                    updateCenterFromVisibleItems()
+                                .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
+                                    if let item = newValue, !showRedGrid {
+                                        blueScrollProxy.scrollTo(item, anchor: .center)
+                                    }
                                 }
                             }
                         }
-                        .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
-                            if let item = newValue, !showRedGrid {
-                                blueScrollProxy.scrollTo(item, anchor: .center)
-                            }
-                        }
-                    }
-                }
-                .scrollClipDisabled(true)
-                .scrollDisabled(isZooming)
-                .scaleEffect(currentScale, anchor: anchor)
-                .opacity(blueGridOpacity)
-                .blur(radius: blueGridBlur)
+                        .scrollClipDisabled(true)
+                        .scrollDisabled(isZooming)
+                        .scaleEffect(currentScale, anchor: anchor)
+                        .opacity(blueGridOpacity)
+                        .blur(radius: blueGridBlur)
 
-                // 3-column red grid overlay
-                ScrollView {
-                    ScrollViewReader { scrollProxy in
-                        LazyVGrid(columns: threeColumns, spacing: gridSpacing) {
-                            ForEach(0..<photos.count, id: \.self) { item in
-                                GeometryReader { itemGeo in
-                                    ZStack {
-                                        let itemData = getItemData(for: item)
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(Color.clear)
-                                            .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
-                                            .overlay(
-                                                PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
-                                                    .cornerRadius(useImageFill ? 0 : 10)
-                                            )
-                                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                                            .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                    }
-                                    .onTapGesture {
-                                        let globalFrame = itemGeo.frame(in: .global)
-                                        selectedItemFrame = globalFrame
-                                        selectedItem = item
-                                        currentPageItem = item
-                                        expandedFromFiveGrid = false
-                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                            showFullscreen = true
+                        // 3-column red grid overlay
+                        ScrollView {
+                            ScrollViewReader { scrollProxy in
+                                LazyVGrid(columns: threeColumns, spacing: gridSpacing) {
+                                    ForEach(0..<photos.count, id: \.self) { item in
+                                        GeometryReader { itemGeo in
+                                            ZStack {
+                                                let itemData = getItemData(for: item)
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .fill(Color.clear)
+                                                    .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
+                                                    .overlay(
+                                                        PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
+                                                            .cornerRadius(useImageFill ? 0 : 10)
+                                                    )
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                    .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
+                                            }
+                                            .onTapGesture {
+                                                let globalFrame = itemGeo.frame(in: .global)
+                                                selectedItemFrame = globalFrame
+                                                selectedItem = item
+                                                currentPageItem = item
+                                                expandedFromFiveGrid = false
+                                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                                    showFullscreen = true
+                                                }
+                                            }
+                                        }
+                                        .aspectRatio(1, contentMode: .fit)
+                                        .id(item)
+                                        .onAppear {
+                                            if redGridOpacity > 0.5 {
+                                                redGridVisibleItems.insert(item)
+                                                updateRedGridCenterItem()
+                                            }
+                                        }
+                                        .onDisappear {
+                                            redGridVisibleItems.remove(item)
+                                            if redGridOpacity > 0.5 {
+                                                updateRedGridCenterItem()
+                                            }
                                         }
                                     }
                                 }
-                                .aspectRatio(1, contentMode: .fit)
-                                .id(item)
                                 .onAppear {
-                                    if redGridOpacity > 0.5 {
-                                        redGridVisibleItems.insert(item)
-                                        updateRedGridCenterItem()
-                                    }
+                                    // Scroll to target item without delay
+                                    scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
                                 }
-                                .onDisappear {
-                                    redGridVisibleItems.remove(item)
-                                    if redGridOpacity > 0.5 {
-                                        updateRedGridCenterItem()
+                                .onChange(of: targetRedGridItem) { _, newValue in
+                                    if showRedGrid {
+                                        scrollProxy.scrollTo(newValue, anchor: .center)
                                     }
                                 }
                             }
                         }
-                        .onAppear {
-                            // Scroll to target item without delay
-                            scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
-                        }
-                        .onChange(of: targetRedGridItem) { _, newValue in
-                            if showRedGrid {
-                                scrollProxy.scrollTo(newValue, anchor: .center)
-                            }
-                        }
+                        .scrollClipDisabled(true)
+                        .scrollDisabled(isZooming || redGridOpacity < 0.5)
+                        .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
+                        .scaleEffect(redGridTargetScale, anchor: anchor)
+                        .opacity(redGridOpacity)
+                        .blur(radius: redGridBlur)
                     }
-                }
-                .scrollClipDisabled(true)
-                .scrollDisabled(isZooming || redGridOpacity < 0.5)
-                .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
-                .scaleEffect(redGridTargetScale, anchor: anchor)
-                .opacity(redGridOpacity)
-                .blur(radius: redGridBlur)
-                }
-                .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
-                .opacity(gridCollapseOpacity)
-                .allowsHitTesting(!isGridCollapsed)
-            }
+                    .blur(radius: gridCollapseBlur)
+                    .scaleEffect(x: gridCollapseScaleX, y: gridCollapseScaleY, anchor: .center)
+                    .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
+                    .opacity(gridCollapseOpacity)
+                    .opacity(gridCollapseOpacity)
+                    .allowsHitTesting(!isGridCollapsed)
+                    // .matchedGeometryEffect(id: "gridContent", in: gridCollapseNamespace)
                 } // End of else block for photo states
+
+            } // End of main ZStack
             .highPriorityGesture(
                 MagnificationGesture(minimumScaleDelta: 0)
                     .onChanged { magnification in
@@ -359,7 +368,7 @@ struct ContentView: View {
                             gestureStarted = true
                             isZooming = true
                             lastMagnification = currentScale
-                            
+
                             // Pre-calculate target item for red grid if zooming in
                             if finalScale <= fiveGridScale && magnification > 1.0 {
                                 initialTargetRedGridItem = centerVisibleItem
@@ -371,15 +380,15 @@ struct ContentView: View {
 
                         // Apply resistance based on scale values, independent of grid state
                         let targetScale = finalScale * magnification
-                        
+
                         // Resistance for zooming out when 5-grid scale < 1.0
                         if targetScale < fiveGridScale {
                             // How far below 1.0 we're trying to go (0 to 1)
                             let overshoot = (fiveGridScale - targetScale) / fiveGridScale
-                            
+
                             // Smooth exponential resistance that increases gradually
                             let resistance = 1.0 - exp(-overshoot * 3.0)
-                            
+
                             // Apply resistance smoothly
                             currentScale = fiveGridScale - (fiveGridScale - targetScale) * (1.0 - resistance * 0.7)
                         }
@@ -387,10 +396,10 @@ struct ContentView: View {
                         else if targetScale > threeGridScale {
                             // How far beyond 3-grid scale we're trying to go
                             let overshoot = (targetScale - threeGridScale) / threeGridScale
-                            
+
                             // Smooth exponential resistance that increases gradually
                             let resistance = 1.0 - exp(-overshoot * 3.0)
-                            
+
                             // Apply resistance smoothly
                             currentScale = threeGridScale + (targetScale - threeGridScale) * (1.0 - resistance * 0.7)
                         } else {
@@ -490,7 +499,7 @@ struct ContentView: View {
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridOpacity)
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: blueGridBlur)
             .animation(isZooming ? nil : .smooth(duration: 0.5), value: redGridBlur)
-            
+
             // Fullscreen overlay
             if let item = selectedItem {
                 ZStack {
@@ -501,7 +510,7 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.3), value: showFullscreen)
                         .onTapGesture {
                             // Keep the existing frame for animation back
-                            
+
                             withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
                                 showFullscreen = false
                             }
@@ -510,17 +519,17 @@ struct ContentView: View {
                                 selectedItem = nil
                             }
                         }
-                    
+
                     // Animated square that transitions from grid to fullscreen
                     GeometryReader { geo in
                         let maxWidth = geo.size.width - 40
                         let maxHeight = geo.size.height - 100
-                        
+
                         // Calculate expanded size based on current page item
                         let expandedItemData = getItemData(for: currentPageItem)
                         let expandedWidth = min(maxWidth, maxHeight / expandedItemData.aspectRatio)
                         let expandedHeight = expandedWidth * expandedItemData.aspectRatio
-                        
+
                         if showFullscreen {
                             // Horizontal ScrollView with paging
                             ScrollViewReader { scrollProxy in
@@ -531,32 +540,32 @@ struct ContentView: View {
                                         let endIndex = min(photos.count, item + 50)
                                         ForEach(startIndex..<endIndex, id: \.self) { index in
                                             let itemData = getItemData(for: index)
-                                                ZStack {
-                                                    let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
-                                                    let itemHeight = itemWidth * itemData.aspectRatio
-                                                    
-                                                    PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: .fit)
-                                                        .cornerRadius(expandedFromFiveGrid ? 7 : 10)
-                                                        .frame(width: itemWidth, height: itemHeight)
-                                                        .onTapGesture {
-                                                            // Keep the existing frame for animation back
-                                                            
-                                                            withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                                                showFullscreen = false
-                                                            }
-                                                            Task { @MainActor in
-                                                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                                                selectedItem = nil
-                                                            }
+                                            ZStack {
+                                                let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
+                                                let itemHeight = itemWidth * itemData.aspectRatio
+
+                                                PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: .fit)
+                                                    .cornerRadius(expandedFromFiveGrid ? 7 : 10)
+                                                    .frame(width: itemWidth, height: itemHeight)
+                                                    .onTapGesture {
+                                                        // Keep the existing frame for animation back
+
+                                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                                            showFullscreen = false
                                                         }
-                                                }
-                                                .frame(width: geo.size.width, height: geo.size.height)
-                                                .id(index)
-                                                .onAppear {
-                                                    if abs(Double(index) - Double(currentPageItem)) < 2 {
-                                                        currentPageItem = index
+                                                        Task { @MainActor in
+                                                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                                                            selectedItem = nil
+                                                        }
                                                     }
+                                            }
+                                            .frame(width: geo.size.width, height: geo.size.height)
+                                            .id(index)
+                                            .onAppear {
+                                                if abs(Double(index) - Double(currentPageItem)) < 2 {
+                                                    currentPageItem = index
                                                 }
+                                            }
                                         }
                                     }
                                 }
@@ -567,7 +576,7 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        
+
                         // Animated transition square
                         let itemData = getItemData(for: currentPageItem)
                         RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
@@ -581,10 +590,10 @@ struct ContentView: View {
                                     .cornerRadius(useImageFill ? 0 : (expandedFromFiveGrid ? 7 : 10))
                             )
                             .clipShape(RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10))
-                        .position(
-                            x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                            y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                        )
+                            .position(
+                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
+                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
+                            )
                             .opacity(showFullscreen ? 0 : 1)
                             .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
                     }
@@ -592,38 +601,50 @@ struct ContentView: View {
                 .zIndex(1000)
                 .allowsHitTesting(selectedItem != nil)
             }
-            
+
             // Toggle overlay at the bottom
             VStack {
                 Spacer()
                 HStack {
                     // Collapse button in bottom left
-                    Button(action: {
-                        withAnimation(.smooth(duration: 0.5, extraBounce: 0.2)) {
-                            isGridCollapsed.toggle()
-                            gridCollapseScale = isGridCollapsed ? 0.1 : 1.0
-                            gridCollapseOpacity = isGridCollapsed ? 0 : 1.0
-                            collapseButtonRotation = isGridCollapsed ? 180 : 0
-                        }
-                    }) {
-                        ZStack {
+                    ZStack {
+                        if isGridCollapsed {
                             Circle()
                                 .fill(.regularMaterial)
                                 .frame(width: 50, height: 50)
-                            
-                            Image(systemName: isGridCollapsed ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(.primary)
-                                .rotationEffect(.degrees(collapseButtonRotation))
+                                .matchedGeometryEffect(id: "gridContent", in: gridCollapseNamespace)
                         }
+
+                        Button(action: {
+                            let duration = isGridCollapsed ? 0.45 : 0.55
+                            withAnimation(.smooth(duration: duration, extraBounce: 0.3)) {
+                                isGridCollapsed.toggle()
+                                gridCollapseScale = isGridCollapsed ? 0.1 : 1.0
+                                gridCollapseOpacity = isGridCollapsed ? 0 : 1.0
+                                collapseButtonRotation = isGridCollapsed ? 180 : 0
+                                gridCollapseBlur = isGridCollapsed ? 30 : 0
+                                gridCollapseScaleX = isGridCollapsed ? 0.3 : 1.0
+                                gridCollapseScaleY = isGridCollapsed ? 0.5 : 1.0
+                            }
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(.regularMaterial)
+                                    .frame(width: 50, height: 50)
+
+                                Image(systemName: isGridCollapsed ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .rotationEffect(.degrees(collapseButtonRotation))
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
                     .padding(.leading, 20)
                     .padding(.bottom, 30)
-                    .matchedGeometryEffect(id: "collapseButton", in: collapseNamespace)
-                    
+
                     Spacer()
-                    
+
                     VStack(spacing: 16) {
                         // Show limited access notice if applicable
                         if authorizationStatus == .limited && !photos.isEmpty {
@@ -644,7 +665,7 @@ struct ContentView: View {
                             .background(.regularMaterial)
                             .clipShape(Capsule())
                         }
-                        
+
                         Button(action: {
                             withAnimation(.smooth(duration: 0.3)) {
                                 useImageFill.toggle()
@@ -663,21 +684,21 @@ struct ContentView: View {
                         .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.bottom, 30)
-                    
+
                     Spacer()
                 }
             }
-        }
-        .ignoresSafeArea()
-        .onAppear {
-            checkPhotoLibraryAuthorization()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            // Reload photos when app becomes active in case user changed selection
-            if authorizationStatus == .limited {
-                loadPhotosFromLibrary()
+            .ignoresSafeArea()
+            .onAppear {
+                checkPhotoLibraryAuthorization()
             }
-        }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                // Reload photos when app becomes active in case user changed selection
+                if authorizationStatus == .limited {
+                    loadPhotosFromLibrary()
+                }
+            }
+        } // End of GeometryReader
     }
 
     func getItemData(for index: Int) -> GridItemData {
@@ -687,7 +708,7 @@ struct ContentView: View {
         }
         return photos[index]
     }
-    
+
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
         let baseX = geometry.size.width / 2
         let baseY = geometry.size.height / 2
@@ -775,13 +796,13 @@ struct ContentView: View {
             }
         }
     }
-    
+
     // MARK: - Photo Library Methods
-    
+
     func checkPhotoLibraryAuthorization() {
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         authorizationStatus = status
-        
+
         switch status {
         case .authorized, .limited:
             loadPhotosFromLibrary()
@@ -801,26 +822,25 @@ struct ContentView: View {
             break
         }
     }
-    
+
     func loadPhotosFromLibrary() {
         isLoadingPhotos = true
-        
+
         let fetchOptions = PHFetchOptions()
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         fetchOptions.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
-        
+
         let fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
-        
+
         var loadedPhotos: [GridItemData] = []
-        
+
         fetchResult.enumerateObjects { asset, _, _ in
             loadedPhotos.append(GridItemData(asset: asset))
         }
-        
+
         DispatchQueue.main.async {
             self.photos = loadedPhotos
             self.isLoadingPhotos = false
         }
     }
-
 }
