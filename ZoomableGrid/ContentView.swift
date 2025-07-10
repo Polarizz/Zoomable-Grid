@@ -136,6 +136,8 @@ struct ContentView: View {
     @State private var redGridCenterItem: Int = 0
     @State private var redGridVisibleItems: Set<Int> = []
     @State private var itemToMaintainOnZoomOut: Int? = nil
+    @State private var blueGridScrollToItem: Int? = nil
+    @State private var redGridScrollToItem: Int? = nil
     @State private var redGridTargetScale: CGFloat = 1.0
     @State private var blueGridOpacity: Double = 1.0
     @State private var redGridOpacity: Double = 0.0
@@ -166,9 +168,7 @@ struct ContentView: View {
     @State private var gridCollapseScaleX: CGFloat = 1.0
     @State private var gridCollapseScaleY: CGFloat = 1.0
     
-    // Staggered animation states
-    @State private var itemAnimationStates: [Int: (scale: CGFloat, opacity: Double, padding: CGFloat, offsetX: CGFloat, offsetY: CGFloat)] = [:]
-    @State private var animatingCollapse: Bool = false
+    // Remove staggered animation states - no longer needed
 
 
     // Namespaces for animations
@@ -237,138 +237,83 @@ struct ContentView: View {
                     .background(Color(UIColor.systemBackground))
                 } else {
                     ZStack {
-                        // Original 5-column blue grid
-                        ScrollView {
-                            ScrollViewReader { blueScrollProxy in
-                                LazyVGrid(columns: columns, spacing: gridSpacing) {
-                                    ForEach(0..<photos.count, id: \.self) { item in
-                                        GeometryReader { itemGeo in
-                                            ZStack {
-                                                let itemData = getItemData(for: item)
-                                                let itemState = itemAnimationStates[item] ?? (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
-                                                
-                                                RoundedRectangle(cornerRadius: 7)
-                                                    .fill(Color.clear)
-                                                    .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
-                                                    .overlay(
-                                                        PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
-                                                            .cornerRadius(useImageFill ? 0 : 7)
-                                                    )
-                                                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                                                    .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                                    .scaleEffect(itemState.scale)
-                                                    .opacity(itemState.opacity)
-                                                    .padding(itemState.padding)
-                                                    .offset(x: itemState.offsetX, y: itemState.offsetY)
-                                            }
-                                            .onTapGesture {
-                                                let globalFrame = itemGeo.frame(in: .global)
-                                                selectedItemFrame = globalFrame
-                                                selectedItem = item
-                                                currentPageItem = item
-                                                expandedFromFiveGrid = true
-                                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                                    showFullscreen = true
-                                                }
-                                            }
-                                        }
-                                        .aspectRatio(1, contentMode: .fit)
-                                        .id(item)
-                                        .onAppear {
-                                            visibleItems.insert(item)
-                                            updateCenterFromVisibleItems()
-                                            // Initialize item animation state if not present
-                                            if itemAnimationStates[item] == nil {
-                                                itemAnimationStates[item] = (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
-                                            }
-                                        }
-                                        .onDisappear {
-                                            visibleItems.remove(item)
-                                            updateCenterFromVisibleItems()
-                                        }
-                                    }
+                        // Original 5-column blue grid using UICollectionView
+                        CollectionViewRepresentable(
+                            photos: photos,
+                            numberOfColumns: 5,
+                            spacing: gridSpacing,
+                            useImageFill: useImageFill,
+                            isScrollEnabled: !isZooming,
+                            currentScale: currentScale,
+                            anchor: anchor,
+                            opacity: blueGridOpacity,
+                            blur: blueGridBlur,
+                            onItemTapped: { item, globalFrame in
+                                selectedItemFrame = globalFrame
+                                selectedItem = item
+                                currentPageItem = item
+                                expandedFromFiveGrid = true
+                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                    showFullscreen = true
                                 }
-                                .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
-                                    if let item = newValue, !showRedGrid {
-                                        blueScrollProxy.scrollTo(item, anchor: .center)
-                                    }
-                                }
+                            },
+                            onVisibleItemsChanged: { items, centerItem in
+                                visibleItems = items
+                                centerVisibleItem = centerItem
+                            },
+                            scrollToItem: $blueGridScrollToItem
+                        )
+                        .ignoresSafeArea(edges: .all)
+                        .onChange(of: itemToMaintainOnZoomOut) { _, newValue in
+                            if let item = newValue, !showRedGrid {
+                                blueGridScrollToItem = item
                             }
                         }
-                        .scrollClipDisabled(true)
-                        .scrollDisabled(isZooming)
-                        .scaleEffect(currentScale, anchor: anchor)
-                        .opacity(blueGridOpacity)
-                        .blur(radius: blueGridBlur)
 
-                        // 3-column red grid overlay
-                        ScrollView {
-                            ScrollViewReader { scrollProxy in
-                                LazyVGrid(columns: threeColumns, spacing: gridSpacing) {
-                                    ForEach(0..<photos.count, id: \.self) { item in
-                                        GeometryReader { itemGeo in
-                                            ZStack {
-                                                let itemData = getItemData(for: item)
-                                                RoundedRectangle(cornerRadius: 10)
-                                                    .fill(Color.clear)
-                                                    .frame(width: itemGeo.size.width - itemPadding * 2, height: itemGeo.size.height - itemPadding * 2)
-                                                    .overlay(
-                                                        PhotoGridImage(itemData: itemData, targetSize: thumbnailSize, contentMode: useImageFill ? .fill : .fit)
-                                                            .cornerRadius(useImageFill ? 0 : 10)
-                                                    )
-                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                                    .position(x: itemGeo.size.width / 2, y: itemGeo.size.height / 2)
-                                            }
-                                            .onTapGesture {
-                                                let globalFrame = itemGeo.frame(in: .global)
-                                                selectedItemFrame = globalFrame
-                                                selectedItem = item
-                                                currentPageItem = item
-                                                expandedFromFiveGrid = false
-                                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                                    showFullscreen = true
-                                                }
-                                            }
-                                        }
-                                        .aspectRatio(1, contentMode: .fit)
-                                        .id(item)
-                                        .onAppear {
-                                            if redGridOpacity > 0.5 {
-                                                redGridVisibleItems.insert(item)
-                                                updateRedGridCenterItem()
-                                            }
-                                        }
-                                        .onDisappear {
-                                            redGridVisibleItems.remove(item)
-                                            if redGridOpacity > 0.5 {
-                                                updateRedGridCenterItem()
-                                            }
-                                        }
-                                    }
+                        // 3-column red grid overlay using UICollectionView
+                        CollectionViewRepresentable(
+                            photos: photos,
+                            numberOfColumns: 3,
+                            spacing: gridSpacing,
+                            useImageFill: useImageFill,
+                            isScrollEnabled: !isZooming && redGridOpacity > 0.5,
+                            currentScale: redGridTargetScale,
+                            anchor: anchor,
+                            opacity: redGridOpacity,
+                            blur: redGridBlur,
+                            onItemTapped: { item, globalFrame in
+                                selectedItemFrame = globalFrame
+                                selectedItem = item
+                                currentPageItem = item
+                                expandedFromFiveGrid = false
+                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
+                                    showFullscreen = true
                                 }
-                                .onAppear {
-                                    // Scroll to target item without delay
-                                    scrollProxy.scrollTo(targetRedGridItem, anchor: .center)
+                            },
+                            onVisibleItemsChanged: { items, centerItem in
+                                if redGridOpacity > 0.5 {
+                                    redGridVisibleItems = items
+                                    redGridCenterItem = centerItem
                                 }
-                                .onChange(of: targetRedGridItem) { _, newValue in
-                                    if showRedGrid {
-                                        scrollProxy.scrollTo(newValue, anchor: .center)
-                                    }
-                                }
+                            },
+                            scrollToItem: $redGridScrollToItem
+                        )
+                        .ignoresSafeArea(edges: .all)
+                        .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
+                        .onAppear {
+                            redGridScrollToItem = targetRedGridItem
+                        }
+                        .onChange(of: targetRedGridItem) { _, newValue in
+                            if showRedGrid {
+                                redGridScrollToItem = newValue
                             }
                         }
-                        .scrollClipDisabled(true)
-                        .scrollDisabled(isZooming || redGridOpacity < 0.5)
-                        .allowsHitTesting(redGridOpacity > 0.5 && !isZooming)
-                        .scaleEffect(redGridTargetScale, anchor: anchor)
-                        .opacity(redGridOpacity)
-                        .blur(radius: redGridBlur)
                     }
                     .blur(radius: gridCollapseBlur)
                     .scaleEffect(x: gridCollapseScaleX, y: gridCollapseScaleY, anchor: .trailing)
                     .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
                     .opacity(gridCollapseOpacity)
-                    .allowsHitTesting(!isGridCollapsed && !animatingCollapse)
+                    .allowsHitTesting(!isGridCollapsed)
                 } // End of else block for photo states
 
             } // End of main ZStack
@@ -631,8 +576,9 @@ struct ContentView: View {
                             let targetCollapsed = !isGridCollapsed
                             let duration = targetCollapsed ? 0.55 : 0.45
                             
-                            // Animate grid-level effects without delay
+                            // Animate grid-level effects
                             withAnimation(.smooth(duration: duration, extraBounce: 0.2)) {
+                                isGridCollapsed = targetCollapsed
                                 collapseButtonRotation = targetCollapsed ? 180 : 0
                                 gridCollapseScale = targetCollapsed ? 0.1 : 1.0
                                 gridCollapseOpacity = targetCollapsed ? 0 : 1.0
@@ -641,8 +587,7 @@ struct ContentView: View {
                                 gridCollapseScaleY = targetCollapsed ? 0.5 : 1.0
                             }
                             
-                            // Animate individual grid items with stagger
-                            animateGridCollapse(collapsed: targetCollapsed)
+                            // No staggered animations - just grid-level effects
                         }) {
                             ZStack {
                                 Circle()
@@ -716,6 +661,7 @@ struct ContentView: View {
                 }
             }
         } // End of GeometryReader
+        .ignoresSafeArea()
     }
 
     func getItemData(for index: Int) -> GridItemData {
@@ -744,132 +690,9 @@ struct ContentView: View {
         return CGPoint(x: baseX + offsetX, y: baseY)
     }
 
-    func updateCenterFromVisibleItems() {
-        guard !visibleItems.isEmpty else { return }
-
-        // Get all visible items sorted
-        let sortedItems = visibleItems.sorted()
-
-        // Group items by row
-        var rowGroups: [Int: [Int]] = [:]
-        for item in sortedItems {
-            let row = item / 5
-            if rowGroups[row] == nil {
-                rowGroups[row] = []
-            }
-            rowGroups[row]?.append(item)
-        }
-
-        // Find the middle row
-        let sortedRows = rowGroups.keys.sorted()
-        guard !sortedRows.isEmpty else { return }
-
-        let middleRowIndex = sortedRows.count / 2
-        let middleRow = sortedRows[middleRowIndex]
-
-        // Get the middle item from the middle row (prefer column 2)
-        if let rowItems = rowGroups[middleRow] {
-            // Try to find column 2 (middle column) in this row
-            let targetItem = middleRow * 5 + 2
-            let newCenterItem = rowItems.contains(targetItem) ? targetItem : rowItems[rowItems.count / 2]
-
-            if newCenterItem != centerVisibleItem {
-                centerVisibleItem = newCenterItem
-            }
-        }
-    }
-
-    func updateRedGridCenterItem() {
-        guard !redGridVisibleItems.isEmpty else { return }
-
-        // Get all visible items sorted
-        let sortedItems = redGridVisibleItems.sorted()
-
-        // Group items by row
-        var rowGroups: [Int: [Int]] = [:]
-        for item in sortedItems {
-            let row = item / 3  // 3 columns for red grid
-            if rowGroups[row] == nil {
-                rowGroups[row] = []
-            }
-            rowGroups[row]?.append(item)
-        }
-
-        // Find the middle row
-        let sortedRows = rowGroups.keys.sorted()
-        guard !sortedRows.isEmpty else { return }
-
-        let middleRowIndex = sortedRows.count / 2
-        let middleRow = sortedRows[middleRowIndex]
-
-        // Get the middle item from the middle row (prefer column 1 - middle column)
-        if let rowItems = rowGroups[middleRow] {
-            // Try to find column 1 (middle column) in this row
-            let targetItem = middleRow * 3 + 1
-            let newCenterItem = rowItems.contains(targetItem) ? targetItem : rowItems[rowItems.count / 2]
-
-            if newCenterItem != redGridCenterItem {
-                redGridCenterItem = newCenterItem
-            }
-        }
-    }
+    // These functions are now handled by the UICollectionView internally
     
-    func getStaggerDelay(for item: Int, columns: Int, reverse: Bool = false) -> Double {
-        // Use index-based delay calculation
-        let totalItems = Double(photos.count)
-        
-        if !reverse {
-            // Collapsing: animate from lower indices to higher (top-left to bottom-right)
-            let normalizedPosition = Double(item) / totalItems
-            return normalizedPosition * 0.2 // Total animation spread of 0.2 seconds
-        } else {
-            // Expanding: animate from higher indices to lower (bottom-right to top-left)
-            let normalizedPosition = Double(photos.count - 1 - item) / totalItems
-            return normalizedPosition * 0.2 // Total animation spread of 0.2 seconds
-        }
-    }
-    
-    func animateGridCollapse(collapsed: Bool) {
-        animatingCollapse = true
-        
-        // Calculate target point (bottom-left where button is)
-        let targetX: CGFloat = 20 // Left edge with some padding
-        let targetY: CGFloat = UIScreen.main.bounds.height - 80 // Bottom edge above the button
-        
-        // Animate each item with staggered delay
-        for index in 0..<photos.count {
-            // Calculate item position for offset
-            let row = index / 5
-            let col = index % 5
-            
-            // Calculate offset to move item toward target point
-            let itemCenterX = CGFloat(col) * (UIScreen.main.bounds.width / 5) + (UIScreen.main.bounds.width / 10)
-            let itemCenterY = CGFloat(row) * (UIScreen.main.bounds.width / 5) + (UIScreen.main.bounds.width / 10)
-            
-            let offsetX = collapsed ? (targetX - itemCenterX) : 0
-            let offsetY = collapsed ? (targetY - itemCenterY) : 0
-            
-            // Reverse the delay for offset animation (bottom to top)
-            let offsetDelay = getStaggerDelay(for: photos.count - 1 - index, columns: 5, reverse: !collapsed)
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + offsetDelay) {
-                withAnimation(.smooth(duration: 0.3, extraBounce: 0.1)) {
-                    if collapsed {
-                        itemAnimationStates[index] = (scale: 0.7, opacity: 0.0, padding: -5, offsetX: offsetX, offsetY: offsetY)
-                    } else {
-                        itemAnimationStates[index] = (scale: 1.0, opacity: 1.0, padding: 0, offsetX: 0, offsetY: 0)
-                    }
-                }
-            }
-        }
-        
-        // Mark animation as complete after all items have animated
-        let totalDelay = getStaggerDelay(for: photos.count - 1, columns: 5, reverse: !collapsed) + 0.3
-        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
-            animatingCollapse = false
-            isGridCollapsed = collapsed
-        }
-    }
+    // Removed animation functions - no longer needed
 
     // MARK: - Photo Library Methods
 
