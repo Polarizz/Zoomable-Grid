@@ -17,6 +17,7 @@ struct FullscreenImageView: View {
     @State private var fullImage: UIImage? = nil
     @State private var isLoadingFullImage: Bool = false
     @State private var showContent: Bool = false
+    @State private var dismissalProgress: CGFloat = 0
     
     private let imageManager = PHImageManager.default()
     
@@ -55,10 +56,17 @@ struct FullscreenImageView: View {
             }
         }
         .onTapGesture {
-            withAnimation(.smooth(duration: 0.3)) {
+            withAnimation(.smooth(duration: 0.4)) {
                 showContent = false
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Start blur/fade just before shrink completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    dismissalProgress = 1.0
+                }
+            }
+            // Remove view after blur/fade completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 isPresented = false
             }
         }
@@ -71,10 +79,17 @@ struct FullscreenImageView: View {
                 }
                 .onEnded { value in
                     if abs(value.translation.height) > 100 {
-                        withAnimation(.smooth(duration: 0.3)) {
+                        withAnimation(.smooth(duration: 0.4)) {
                             showContent = false
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        // Start blur/fade just before shrink completes
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                dismissalProgress = 1.0
+                            }
+                        }
+                        // Remove view after blur/fade completes
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             isPresented = false
                         }
                     } else {
@@ -105,11 +120,14 @@ struct FullscreenImageView: View {
             )
             .clipped()
             .scaleEffect(showContent ? dragScale : 1.0)
+            .blur(radius: dismissalProgress * 30)
+            .opacity(1.0 - dismissalProgress)
             .position(
                 x: showContent ? geometry.size.width / 2 + dragOffset.width : sourceFrame.midX,
                 y: showContent ? geometry.size.height / 2 + dragOffset.height : sourceFrame.midY
             )
             .animation(.smooth(duration: 0.4), value: showContent)
+            .animation(.easeOut(duration: 0.1), value: dismissalProgress)
     }
     
     private func loadFullImage(from asset: PHAsset) {
