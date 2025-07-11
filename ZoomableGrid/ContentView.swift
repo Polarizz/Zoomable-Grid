@@ -8,6 +8,7 @@
 import SwiftUI
 import PhotosUI
 import Photos
+import SmoothGradient
 
 struct SeededRandomNumberGenerator: RandomNumberGenerator {
     private var seed: UInt64
@@ -275,6 +276,46 @@ struct ContentView: View {
                     .scaleEffect(gridCollapseScale, anchor: .bottomLeading)
                     .opacity(gridCollapseOpacity)
                     .allowsHitTesting(!isGridCollapsed)
+                    .mask(LinearGradient(gradient: Gradient(stops: [
+                        .init(color: .black.opacity(0.3), location: 0),
+                        .init(color: .black, location: 0.15),
+                        .init(color: .black, location: 0.85),
+                        .init(color: .black.opacity(0.3), location: 1),
+                    ]), startPoint: .top, endPoint: .bottom))
+                    .overlay(
+                        SmoothLinearGradient(
+                            from: .init(color: .black.opacity(0.6), location: 0),
+                            to: .init(color: .clear, location: 1),
+                            startPoint: .top,
+                            endPoint: .bottom,
+                            curve: .easeInOut
+                        )
+                        .frame(height: (safeAreaInsets.top + 20) * 1.5)
+                        , alignment: .top
+                    )
+                    .overlay(
+                        SmoothLinearGradient(
+                            from: .init(color: .clear, location: 0),
+                            to: .init(color: .black.opacity(0.6), location: 1),
+                            startPoint: .top,
+                            endPoint: .bottom,
+                            curve: .easeInOut
+                        )
+                        .frame(height: (safeAreaInsets.top + 100) * 1.5)
+                        , alignment: .bottom
+                    )
+                    .overlay(
+                        VariableBlurView(maxBlurRadius: 3.9)
+                            .frame(height: safeAreaInsets.top + 20)
+                            .ignoresSafeArea()
+                        , alignment: .top
+                    )
+                    .overlay(
+                        VariableBlurView(maxBlurRadius: 3.9, direction: .blurredBottomClearTop)
+                            .frame(height: safeAreaInsets.bottom + 100)
+                            .ignoresSafeArea()
+                        , alignment: .bottom
+                    )
                 } // End of else block for photo states
 
             } // End of main ZStack
@@ -416,7 +457,6 @@ struct ContentView: View {
                     }
             )
 
-
             // Toggle overlay at the bottom
             VStack {
                 Spacer()
@@ -519,11 +559,10 @@ struct ContentView: View {
                 }
             }
             
-            // Fullscreen image overlay with paging
-            if showFullscreenImage {
-                FullscreenPagingView(
-                    photos: photos,
-                    selectedIndex: $selectedImageIndex,
+            // Simple fullscreen image overlay (no paging)
+            if showFullscreenImage, let imageData = selectedImageData {
+                SimpleFullscreenImageView(
+                    itemData: imageData,
                     isPresented: $showFullscreenImage,
                     sourceFrame: selectedCellFrame
                 )

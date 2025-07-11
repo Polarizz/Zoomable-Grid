@@ -122,7 +122,7 @@ struct FullscreenPagingView: View {
         let assetId = asset.localIdentifier
         
         // Skip if already cached
-        if SingleFullscreenView.imageCache[assetId] != nil {
+        if ImageCacheManager.shared.image(for: assetId) != nil {
             return
         }
         
@@ -131,10 +131,11 @@ struct FullscreenPagingView: View {
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
         
-        let scale = UIScreen.main.scale
+        // Use a more reasonable size - 2x screen size for zoom headroom
+        let screenSize = UIScreen.main.bounds.size
         let targetSize = CGSize(
-            width: UIScreen.main.bounds.width * scale,
-            height: UIScreen.main.bounds.height * scale
+            width: screenSize.width * 2,
+            height: screenSize.height * 2
         )
         
         imageManager.requestImage(
@@ -145,7 +146,7 @@ struct FullscreenPagingView: View {
         ) { image, _ in
             if let image = image {
                 // Cache the image
-                SingleFullscreenView.imageCache[assetId] = image
+                ImageCacheManager.shared.cache(image, for: assetId)
             }
         }
     }
@@ -170,8 +171,8 @@ struct SingleFullscreenView: View {
     
     private let imageManager = PHImageManager.default()
     
-    // Static cache for preloaded images
-    static var imageCache: [String: UIImage] = [:]
+    // Use shared cache manager instead of static cache
+    private let cacheManager = ImageCacheManager.shared
     
     var body: some View {
         GeometryReader { geometry in
@@ -247,7 +248,7 @@ struct SingleFullscreenView: View {
         let assetId = asset.localIdentifier
         
         // Check cache first
-        if let cachedImage = SingleFullscreenView.imageCache[assetId] {
+        if let cachedImage = ImageCacheManager.shared.image(for: assetId) {
             DispatchQueue.main.async {
                 self.fullImage = cachedImage
             }
@@ -258,10 +259,11 @@ struct SingleFullscreenView: View {
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
         
-        let scale = UIScreen.main.scale
+        // Use a more reasonable size - 2x screen size for zoom headroom
+        let screenSize = UIScreen.main.bounds.size
         let targetSize = CGSize(
-            width: UIScreen.main.bounds.width * scale,
-            height: UIScreen.main.bounds.height * scale
+            width: screenSize.width * 2,
+            height: screenSize.height * 2
         )
         
         imageManager.requestImage(
@@ -272,7 +274,7 @@ struct SingleFullscreenView: View {
         ) { image, _ in
             if let image = image {
                 // Cache the image
-                SingleFullscreenView.imageCache[assetId] = image
+                ImageCacheManager.shared.cache(image, for: assetId)
                 
                 DispatchQueue.main.async {
                     self.fullImage = image
