@@ -129,6 +129,7 @@ struct ContentView: View {
 
     // Fullscreen image state
     @State private var selectedImageData: GridItemData? = nil
+    @State private var selectedImageIndex: Int = 0
     @State private var showFullscreenImage: Bool = false
     @State private var selectedCellFrame: CGRect = .zero
 
@@ -216,6 +217,9 @@ struct ContentView: View {
                             onImageTapped: { itemData, frame in
                                 selectedImageData = itemData
                                 selectedCellFrame = frame
+                                if let index = photos.firstIndex(where: { $0.id == itemData.id }) {
+                                    selectedImageIndex = index
+                                }
                                 showFullscreenImage = true
                             },
                             scrollToItem: $blueGridScrollToItem
@@ -248,6 +252,9 @@ struct ContentView: View {
                             onImageTapped: { itemData, frame in
                                 selectedImageData = itemData
                                 selectedCellFrame = frame
+                                if let index = photos.firstIndex(where: { $0.id == itemData.id }) {
+                                    selectedImageIndex = index
+                                }
                                 showFullscreenImage = true
                             },
                             scrollToItem: $redGridScrollToItem
@@ -512,11 +519,12 @@ struct ContentView: View {
             }
             
             // Fullscreen image overlay
-            if showFullscreenImage, let imageData = selectedImageData {
-                FullscreenImageView(
-                    itemData: imageData,
-                    isPresented: $showFullscreenImage,
-                    sourceFrame: selectedCellFrame
+            if showFullscreenImage {
+                FullscreenPagingContainer(
+                    photos: photos,
+                    initialIndex: selectedImageIndex,
+                    initialSourceFrame: selectedCellFrame,
+                    isPresented: $showFullscreenImage
                 )
                 .transition(.identity)
                 .zIndex(100)

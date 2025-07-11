@@ -12,6 +12,7 @@ struct FullscreenImageView: View {
     let itemData: GridItemData
     @Binding var isPresented: Bool
     let sourceFrame: CGRect
+    @Binding var isCurrentPage: Bool
     @State private var dragOffset: CGSize = .zero
     @State private var dragScale: CGFloat = 1.0
     @State private var fullImage: UIImage? = nil
@@ -48,7 +49,8 @@ struct FullscreenImageView: View {
                         dismissalProgress: $dismissalProgress,
                         isPresented: $isPresented,
                         currentScale: $currentScale,
-                        offset: $offset
+                        offset: $offset,
+                        isCurrentPage: isCurrentPage
                     )
                 } else if let asset = itemData.asset {
                     ZStack {
@@ -67,7 +69,8 @@ struct FullscreenImageView: View {
                                 dismissalProgress: $dismissalProgress,
                                 isPresented: $isPresented,
                                 currentScale: $currentScale,
-                                offset: $offset
+                                offset: $offset,
+                                isCurrentPage: isCurrentPage
                             )
                             .blur(radius: isLoadingFullImage ? 2 : 0)
                         }
@@ -79,7 +82,11 @@ struct FullscreenImageView: View {
             }
         }
         .onAppear {
-            withAnimation(.smooth(duration: 0.4)) {
+            if isCurrentPage && sourceFrame != .zero {
+                withAnimation(.smooth(duration: 0.4)) {
+                    showContent = true
+                }
+            } else {
                 showContent = true
             }
         }
@@ -148,6 +155,7 @@ struct ZoomableImageView: View {
     @Binding var isPresented: Bool
     @Binding var currentScale: CGFloat
     @Binding var offset: CGSize
+    let isCurrentPage: Bool
     
     @State private var lastScale: CGFloat = 1.0
     @State private var lastOffset: CGSize = .zero
@@ -211,7 +219,7 @@ struct ZoomableImageView: View {
                     }
                 }
             }
-            .gesture(
+            .simultaneousGesture(
                 MagnificationGesture()
                     .updating($magnifyBy) { currentState, gestureState, _ in
                         gestureState = currentState
@@ -245,38 +253,6 @@ struct ZoomableImageView: View {
                             constrainOffset(imageSize: CGSize(width: finalWidth, height: finalHeight))
                         }
                     )
-            )
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if currentScale <= 1 {
-                            let translation = value.translation
-                            offset = translation
-                            let progress = min(abs(translation.height) / 200.0, 1.0)
-                            currentScale = 1.0 - (progress * 0.3)
-                        }
-                    }
-                    .onEnded { value in
-                        if currentScale <= 1 && abs(value.translation.height) > 100 {
-                            withAnimation(.smooth(duration: 0.4)) {
-                                showContent = false
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                withAnimation(.easeOut(duration: 0.15)) {
-                                    dismissalProgress = 1.0
-                                }
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                isPresented = false
-                            }
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                currentScale = 1.0
-                                offset = .zero
-                            }
-                        }
-                        lastOffset = offset
-                    }
             )
     }
     
