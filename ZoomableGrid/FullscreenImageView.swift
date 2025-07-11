@@ -19,7 +19,17 @@ struct FullscreenImageView: View {
     @State private var showContent: Bool = false
     @State private var dismissalProgress: CGFloat = 0
     
+    // Zoom related states
+    @State private var currentScale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var isZooming = false
+    
     private let imageManager = PHImageManager.default()
+    private let minimumScale: CGFloat = 1.0
+    private let maximumScale: CGFloat = 5.0
+    private let doubleTapScale: CGFloat = 2.5
     
     var body: some View {
         GeometryReader { geometry in
@@ -30,7 +40,16 @@ struct FullscreenImageView: View {
                     .animation(.easeInOut(duration: 0.3), value: showContent)
                 
                 if let image = fullImage ?? itemData.image {
-                    imageView(image: image, in: geometry)
+                    ZoomableImageView(
+                        image: image,
+                        geometry: geometry,
+                        sourceFrame: sourceFrame,
+                        showContent: $showContent,
+                        dismissalProgress: $dismissalProgress,
+                        isPresented: $isPresented,
+                        currentScale: $currentScale,
+                        offset: $offset
+                    )
                 } else if let asset = itemData.asset {
                     ZStack {
                         // Placeholder while loading
@@ -40,8 +59,17 @@ struct FullscreenImageView: View {
                         
                         // Low-res thumbnail while loading full image
                         if let thumbnailImage = itemData.image {
-                            imageView(image: thumbnailImage, in: geometry)
-                                .blur(radius: isLoadingFullImage ? 2 : 0)
+                            ZoomableImageView(
+                                image: thumbnailImage,
+                                geometry: geometry,
+                                sourceFrame: sourceFrame,
+                                showContent: $showContent,
+                                dismissalProgress: $dismissalProgress,
+                                isPresented: $isPresented,
+                                currentScale: $currentScale,
+                                offset: $offset
+                            )
+                            .blur(radius: isLoadingFullImage ? 2 : 0)
                         }
                     }
                     .onAppear {
@@ -55,79 +83,6 @@ struct FullscreenImageView: View {
                 showContent = true
             }
         }
-        .onTapGesture {
-            withAnimation(.smooth(duration: 0.4)) {
-                showContent = false
-            }
-            // Start blur/fade just before shrink completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    dismissalProgress = 1.0
-                }
-            }
-            // Remove view after blur/fade completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isPresented = false
-            }
-        }
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    dragOffset = value.translation
-                    let progress = min(abs(value.translation.height) / 200.0, 1.0)
-                    dragScale = 1.0 - (progress * 0.3)
-                }
-                .onEnded { value in
-                    if abs(value.translation.height) > 100 {
-                        withAnimation(.smooth(duration: 0.4)) {
-                            showContent = false
-                        }
-                        // Start blur/fade just before shrink completes
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            withAnimation(.easeOut(duration: 0.15)) {
-                                dismissalProgress = 1.0
-                            }
-                        }
-                        // Remove view after blur/fade completes
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            isPresented = false
-                        }
-                    } else {
-                        withAnimation(.smooth(duration: 0.2)) {
-                            dragOffset = .zero
-                            dragScale = 1.0
-                        }
-                    }
-                }
-        )
-    }
-    
-    @ViewBuilder
-    private func imageView(image: UIImage, in geometry: GeometryProxy) -> some View {
-        let imageAspectRatio = image.size.width / image.size.height
-        let screenAspectRatio = geometry.size.width / geometry.size.height
-        
-        // Calculate final frame (aspect fit in screen)
-        let finalWidth: CGFloat = imageAspectRatio > screenAspectRatio ? geometry.size.width : geometry.size.height * imageAspectRatio
-        let finalHeight: CGFloat = imageAspectRatio > screenAspectRatio ? geometry.size.width / imageAspectRatio : geometry.size.height
-        
-        Image(uiImage: image)
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(
-                width: showContent ? finalWidth : sourceFrame.width,
-                height: showContent ? finalHeight : sourceFrame.height
-            )
-            .clipped()
-            .scaleEffect(showContent ? dragScale : 1.0)
-            .blur(radius: dismissalProgress * 30)
-            .opacity(1.0 - dismissalProgress)
-            .position(
-                x: showContent ? geometry.size.width / 2 + dragOffset.width : sourceFrame.midX,
-                y: showContent ? geometry.size.height / 2 + dragOffset.height : sourceFrame.midY
-            )
-            .animation(.smooth(duration: 0.4), value: showContent)
-            .animation(.easeOut(duration: 0.1), value: dismissalProgress)
     }
     
     private func loadFullImage(from asset: PHAsset) {
@@ -136,12 +91,11 @@ struct FullscreenImageView: View {
         isLoadingFullImage = true
         
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic // This delivers low quality first, then high quality
+        options.deliveryMode = .opportunistic
         options.isNetworkAccessAllowed = true
         options.isSynchronous = false
         options.resizeMode = .fast
         
-        // Request image at a reasonable size for display (not full resolution which can be huge)
         let scale = UIScreen.main.scale
         let targetSize = CGSize(
             width: UIScreen.main.bounds.width * scale,
@@ -155,32 +109,26 @@ struct FullscreenImageView: View {
             options: options
         ) { [self] image, info in
             
-            // Check for errors
             if let error = info?[PHImageErrorKey] as? Error {
                 print("Error loading full image: \(error.localizedDescription)")
                 return
             }
             
-            // Check if request was cancelled
             if let isCancelled = info?[PHImageCancelledKey] as? Bool, isCancelled {
                 return
             }
             
-            // Check if this is a degraded image (low quality)
             let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
             
-            // Only proceed if we have an image
             guard let image = image else { return }
             
             Task { @MainActor in
-                // If we don't have any image yet, use this one immediately
                 if self.fullImage == nil {
                     self.fullImage = image
                     if !isDegraded {
                         self.isLoadingFullImage = false
                     }
                 } else if !isDegraded {
-                    // Replace with high quality image
                     withAnimation(.easeInOut(duration: 0.2)) {
                         self.fullImage = image
                         self.isLoadingFullImage = false
@@ -188,5 +136,162 @@ struct FullscreenImageView: View {
                 }
             }
         }
+    }
+}
+
+struct ZoomableImageView: View {
+    let image: UIImage
+    let geometry: GeometryProxy
+    let sourceFrame: CGRect
+    @Binding var showContent: Bool
+    @Binding var dismissalProgress: CGFloat
+    @Binding var isPresented: Bool
+    @Binding var currentScale: CGFloat
+    @Binding var offset: CGSize
+    
+    @State private var lastScale: CGFloat = 1.0
+    @State private var lastOffset: CGSize = .zero
+    @State private var isDragging = false
+    @GestureState private var magnifyBy = CGFloat(1.0)
+    
+    private let minimumScale: CGFloat = 1.0
+    private let maximumScale: CGFloat = 5.0
+    private let doubleTapScale: CGFloat = 2.5
+    
+    var combinedScale: CGFloat {
+        let scale = currentScale * magnifyBy
+        
+        // Apply rubber band effect when beyond limits
+        if magnifyBy != 1.0 {
+            if scale < minimumScale {
+                let diff = minimumScale - scale
+                return minimumScale - (diff * 0.5)
+            } else if scale > maximumScale {
+                let diff = scale - maximumScale
+                return maximumScale + (diff * 0.1)
+            }
+        }
+        
+        return scale
+    }
+    
+    var body: some View {
+        let imageAspectRatio = image.size.width / image.size.height
+        let screenAspectRatio = geometry.size.width / geometry.size.height
+        
+        let finalWidth: CGFloat = imageAspectRatio > screenAspectRatio ? geometry.size.width : geometry.size.height * imageAspectRatio
+        let finalHeight: CGFloat = imageAspectRatio > screenAspectRatio ? geometry.size.width / imageAspectRatio : geometry.size.height
+        
+        Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(
+                width: showContent ? finalWidth : sourceFrame.width,
+                height: showContent ? finalHeight : sourceFrame.height
+            )
+            .clipped()
+            .scaleEffect(showContent ? combinedScale : 1.0)
+            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.9), value: combinedScale)
+            .offset(showContent ? offset : .zero)
+            .blur(radius: dismissalProgress * 30)
+            .opacity(1.0 - dismissalProgress)
+            .position(
+                x: showContent ? geometry.size.width / 2 : sourceFrame.midX,
+                y: showContent ? geometry.size.height / 2 : sourceFrame.midY
+            )
+            .animation(.smooth(duration: 0.4), value: showContent)
+            .animation(.easeOut(duration: 0.1), value: dismissalProgress)
+            .onTapGesture(count: 2) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    if currentScale > 1 {
+                        currentScale = 1.0
+                        offset = .zero
+                    } else {
+                        currentScale = doubleTapScale
+                    }
+                }
+            }
+            .gesture(
+                MagnificationGesture()
+                    .updating($magnifyBy) { currentState, gestureState, _ in
+                        gestureState = currentState
+                    }
+                    .onEnded { value in
+                        let newScale = currentScale * value
+                        
+                        // Simply clamp the scale - animation modifier handles the spring back
+                        currentScale = min(max(newScale, minimumScale), maximumScale)
+                        
+                        // Reset offset if we're back at 1x
+                        if currentScale <= 1.0 {
+                            withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.9)) {
+                                offset = .zero
+                            }
+                        }
+                        
+                        constrainOffset(imageSize: CGSize(width: finalWidth, height: finalHeight))
+                    }
+                    .simultaneously(with: DragGesture()
+                        .onChanged { value in
+                            if currentScale > 1 {
+                                offset = CGSize(
+                                    width: lastOffset.width + value.translation.width,
+                                    height: lastOffset.height + value.translation.height
+                                )
+                            }
+                        }
+                        .onEnded { value in
+                            lastOffset = offset
+                            constrainOffset(imageSize: CGSize(width: finalWidth, height: finalHeight))
+                        }
+                    )
+            )
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if currentScale <= 1 {
+                            let translation = value.translation
+                            offset = translation
+                            let progress = min(abs(translation.height) / 200.0, 1.0)
+                            currentScale = 1.0 - (progress * 0.3)
+                        }
+                    }
+                    .onEnded { value in
+                        if currentScale <= 1 && abs(value.translation.height) > 100 {
+                            withAnimation(.smooth(duration: 0.4)) {
+                                showContent = false
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    dismissalProgress = 1.0
+                                }
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                isPresented = false
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                currentScale = 1.0
+                                offset = .zero
+                            }
+                        }
+                        lastOffset = offset
+                    }
+            )
+    }
+    
+    private func constrainOffset(imageSize: CGSize) {
+        let scaledWidth = imageSize.width * currentScale
+        let scaledHeight = imageSize.height * currentScale
+        
+        let maxOffsetX = max((scaledWidth - geometry.size.width) / 2, 0)
+        let maxOffsetY = max((scaledHeight - geometry.size.height) / 2, 0)
+        
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            offset.width = min(max(offset.width, -maxOffsetX), maxOffsetX)
+            offset.height = min(max(offset.height, -maxOffsetY), maxOffsetY)
+        }
+        
+        lastOffset = offset
     }
 }
