@@ -105,10 +105,16 @@ struct SingleFullscreenView: View {
         GeometryReader { geometry in
             ZStack {
                 if let image = fullImage ?? itemData.image {
+                    let adjustedFrame = CGRect(
+                        x: sourceFrame.origin.x,
+                        y: sourceFrame.origin.y - geometry.safeAreaInsets.top,
+                        width: sourceFrame.width,
+                        height: sourceFrame.height
+                    )
                     InteractiveImageView(
                         image: image,
                         geometry: geometry,
-                        sourceFrame: sourceFrame,
+                        sourceFrame: adjustedFrame,
                         showContent: $showContent,
                         currentScale: $currentScale,
                         dragOffset: $dragOffset,
@@ -186,7 +192,7 @@ struct SingleFullscreenView: View {
 struct InteractiveImageView: View {
     let image: UIImage
     let geometry: GeometryProxy
-    let sourceFrame: CGRect
+    var sourceFrame: CGRect
     @Binding var showContent: Bool
     @Binding var currentScale: CGFloat
     @Binding var dragOffset: CGSize
@@ -241,7 +247,6 @@ struct InteractiveImageView: View {
                 x: showContent ? geometry.size.width / 2 : sourceFrame.midX,
                 y: showContent ? geometry.size.height / 2 : sourceFrame.midY
             )
-            .clipped()
             .animation(.smooth(duration: 0.35), value: showContent)
             .onTapGesture(count: 2) {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

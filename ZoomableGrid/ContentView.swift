@@ -529,6 +529,7 @@ struct ContentView: View {
                 )
                 .transition(.identity)
                 .zIndex(100)
+                .ignoresSafeArea()
             }
         } // End of GeometryReader
         .ignoresSafeArea()

@@ -275,9 +275,9 @@ extension GridCollectionViewController: GridCollectionViewCellDelegate {
             }
         }
         
-        // Convert to window coordinates
+        // Convert to screen coordinates
         if let window = collectionView.window {
-            let frameInWindow = collectionView.convert(imageFrame, to: window)
+            let frameInWindow = collectionView.convert(imageFrame, to: nil)
             onImageTapped?(itemData, frameInWindow)
         } else {
             onImageTapped?(itemData, imageFrame)
