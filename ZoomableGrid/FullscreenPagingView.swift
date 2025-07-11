@@ -12,13 +12,18 @@ struct FullscreenPagingView: View {
     let photos: [GridItemData]
     @Binding var selectedIndex: Int
     @Binding var isPresented: Bool
-    let sourceFrame: CGRect
+    let initialFrame: CGRect
+    let frameForIndex: ((Int) -> CGRect?)?
     @Namespace private var animationNamespace
     
     @State private var currentPage: Int = 0
     @State private var isDismissing: Bool = false
     @State private var dragOffset: CGSize = .zero
     @State private var backgroundOpacity: Double = 0.0
+    @State private var loadedImages: [String: UIImage] = [:]
+    
+    private let imageManager = PHImageManager.default()
+    private let preloadRange = 2 // Number of images to preload in each direction
     
     var body: some View {
         ZStack {
@@ -39,9 +44,11 @@ struct FullscreenPagingView: View {
                 ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
                     SingleFullscreenView(
                         itemData: photo,
+                        preloadedImage: loadedImages[photo.id],
                         isPresented: $isPresented,
-                        sourceFrame: index == selectedIndex ? sourceFrame : .zero,
+                        sourceFrame: index == selectedIndex ? initialFrame : .zero,
                         isCurrentPage: index == currentPage,
+                        isInitialPage: index == selectedIndex,
                         onDragChanged: { offset in
                             dragOffset = offset
                             // Calculate opacity based on drag distance
@@ -64,6 +71,10 @@ struct FullscreenPagingView: View {
                         isDismissing: isDismissing,
                         onDismissComplete: {
                             isPresented = false
+                        },
+                        getCurrentFrame: {
+                            // Get the current frame for dismissal animation
+                            frameForIndex?(index) ?? initialFrame
                         }
                     )
                     .tag(index)
@@ -77,79 +88,201 @@ struct FullscreenPagingView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 backgroundOpacity = 1.0
             }
+            preloadImages(around: selectedIndex)
         }
         .onChange(of: currentPage) { _, newValue in
             selectedIndex = newValue
+            preloadImages(around: newValue)
+        }
+    }
+    
+    private func preloadImages(around index: Int) {
+        let startIndex = max(0, index - preloadRange)
+        let endIndex = min(photos.count - 1, index + preloadRange)
+        
+        for i in startIndex...endIndex {
+            let photo = photos[i]
+            
+            // Skip if already loaded or no asset
+            guard loadedImages[photo.id] == nil,
+                  let asset = photo.asset else { continue }
+            
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+            
+            let scale = UIScreen.main.scale
+            let targetSize = CGSize(
+                width: UIScreen.main.bounds.width * scale,
+                height: UIScreen.main.bounds.height * scale
+            )
+            
+            imageManager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                guard let image = image else { return }
+                
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if !isDegraded {
+                    DispatchQueue.main.async {
+                        self.loadedImages[photo.id] = image
+                    }
+                }
+            }
+        }
+        
+        // Clean up images that are too far from current page
+        let keepRange = preloadRange * 2
+        loadedImages = loadedImages.filter { key, _ in
+            guard let photoIndex = photos.firstIndex(where: { $0.id == key }) else { return false }
+            return abs(photoIndex - index) <= keepRange
         }
     }
 }
 
 struct SingleFullscreenView: View {
     let itemData: GridItemData
+    let preloadedImage: UIImage?
     @Binding var isPresented: Bool
     let sourceFrame: CGRect
     let isCurrentPage: Bool
+    let isInitialPage: Bool
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: (Bool) -> Void
     let isDismissing: Bool
     let onDismissComplete: () -> Void
+    let getCurrentFrame: () -> CGRect
     
     @State private var dragOffset: CGSize = .zero
     @State private var currentScale: CGFloat = 1.0
     @State private var showContent: Bool = false
     @State private var fullImage: UIImage? = nil
     @State private var imageOpacity: Double = 1.0
+    @State private var hasAppeared: Bool = false
+    @State private var dismissalFrame: CGRect? = nil
     
     private let imageManager = PHImageManager.default()
     
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                if let image = fullImage ?? itemData.image {
-                    let adjustedFrame = CGRect(
-                        x: sourceFrame.origin.x,
-                        y: sourceFrame.origin.y - geometry.safeAreaInsets.top,
-                        width: sourceFrame.width,
-                        height: sourceFrame.height
-                    )
-                    InteractiveImageView(
-                        image: image,
-                        geometry: geometry,
-                        sourceFrame: adjustedFrame,
-                        showContent: $showContent,
-                        currentScale: $currentScale,
-                        dragOffset: $dragOffset,
-                        imageOpacity: $imageOpacity,
-                        isCurrentPage: isCurrentPage,
-                        onDragChanged: onDragChanged,
-                        onDragEnded: onDragEnded
-                    )
-                    .onAppear {
-                        if sourceFrame != .zero {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                withAnimation(.smooth(duration: 0.35)) {
-                                    showContent = true
+                if let image = fullImage ?? preloadedImage ?? itemData.image {
+                    if isInitialPage && sourceFrame != .zero {
+                        // Initial page with animation
+                        let adjustedFrame = CGRect(
+                            x: sourceFrame.origin.x,
+                            y: sourceFrame.origin.y - geometry.safeAreaInsets.top,
+                            width: sourceFrame.width,
+                            height: sourceFrame.height
+                        )
+                        InteractiveImageView(
+                            image: image,
+                            geometry: geometry,
+                            sourceFrame: dismissalFrame ?? adjustedFrame,
+                            showContent: $showContent,
+                            currentScale: $currentScale,
+                            dragOffset: $dragOffset,
+                            imageOpacity: $imageOpacity,
+                            isCurrentPage: isCurrentPage,
+                            isInitialPage: isInitialPage,
+                            onDragChanged: onDragChanged,
+                            onDragEnded: onDragEnded
+                        )
+                        .onAppear {
+                            if !hasAppeared {
+                                hasAppeared = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    withAnimation(.smooth(duration: 0.35)) {
+                                        showContent = true
+                                    }
                                 }
                             }
-                        } else {
-                            showContent = true
                         }
-                    }
-                    .onChange(of: isDismissing) { _, isDismissing in
-                        if isDismissing && isCurrentPage {
-                            withAnimation(.smooth(duration: 0.35)) {
-                                showContent = false
-                                currentScale = 1.0
-                                dragOffset = .zero
-                            }
-                            // Fade out the image after it reaches the root position
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                withAnimation(.easeOut(duration: 0.15)) {
-                                    imageOpacity = 0
+                        .onChange(of: isDismissing) { _, isDismissing in
+                            if isDismissing && isCurrentPage {
+                                // Update the source frame to current position for proper dismissal
+                                let currentFrame = getCurrentFrame()
+                                if currentFrame != .zero {
+                                    dismissalFrame = CGRect(
+                                        x: currentFrame.origin.x,
+                                        y: currentFrame.origin.y - geometry.safeAreaInsets.top,
+                                        width: currentFrame.width,
+                                        height: currentFrame.height
+                                    )
+                                }
+                                
+                                withAnimation(.smooth(duration: 0.35)) {
+                                    showContent = false
+                                    currentScale = 1.0
+                                    dragOffset = .zero
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                    withAnimation(.easeOut(duration: 0.15)) {
+                                        imageOpacity = 0
+                                    }
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    onDismissComplete()
                                 }
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                onDismissComplete()
+                        }
+                    } else {
+                        // Non-initial pages - always use current frame for dismissal
+                        let currentFrame = getCurrentFrame()
+                        let adjustedCurrentFrame = currentFrame != .zero ? CGRect(
+                            x: currentFrame.origin.x,
+                            y: currentFrame.origin.y - geometry.safeAreaInsets.top,
+                            width: currentFrame.width,
+                            height: currentFrame.height
+                        ) : .zero
+                        
+                        InteractiveImageView(
+                            image: image,
+                            geometry: geometry,
+                            sourceFrame: dismissalFrame ?? adjustedCurrentFrame,
+                            showContent: $showContent,
+                            currentScale: $currentScale,
+                            dragOffset: $dragOffset,
+                            imageOpacity: $imageOpacity,
+                            isCurrentPage: isCurrentPage,
+                            isInitialPage: false,
+                            onDragChanged: onDragChanged,
+                            onDragEnded: onDragEnded
+                        )
+                        .onAppear {
+                            showContent = true
+                            imageOpacity = 1.0
+                        }
+                        .onChange(of: isDismissing) { _, isDismissing in
+                            if isDismissing && isCurrentPage {
+                                // Update frame for dismissal
+                                let frame = getCurrentFrame()
+                                if frame != .zero {
+                                    dismissalFrame = CGRect(
+                                        x: frame.origin.x,
+                                        y: frame.origin.y - geometry.safeAreaInsets.top,
+                                        width: frame.width,
+                                        height: frame.height
+                                    )
+                                }
+                                
+                                withAnimation(.smooth(duration: 0.35)) {
+                                    showContent = false
+                                    currentScale = 1.0
+                                    dragOffset = .zero
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                    withAnimation(.easeOut(duration: 0.15)) {
+                                        imageOpacity = 0
+                                    }
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    onDismissComplete()
+                                }
                             }
                         }
                     }
@@ -163,7 +296,10 @@ struct SingleFullscreenView: View {
             }
         }
         .onAppear {
-            if let asset = itemData.asset {
+            // Use preloaded image if available
+            if let preloaded = preloadedImage {
+                fullImage = preloaded
+            } else if let asset = itemData.asset {
                 loadFullImage(from: asset)
             }
         }
@@ -206,6 +342,7 @@ struct InteractiveImageView: View {
     @Binding var dragOffset: CGSize
     @Binding var imageOpacity: Double
     let isCurrentPage: Bool
+    let isInitialPage: Bool
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: (Bool) -> Void
     
@@ -245,11 +382,11 @@ struct InteractiveImageView: View {
                 height: showContent ? imageSize.height : sourceFrame.height
             )
             .cornerRadius(showContent ? 0 : 8)
-            .scaleEffect(showContent ? combinedScale * (1.0 - min(abs(dragOffset.height) / 1000.0, 0.3)) : 1.0)
+            .scaleEffect(combinedScale * (1.0 - min(abs(dragOffset.height) / 1000.0, 0.3)))
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.9), value: combinedScale)
             .offset(
-                x: showContent ? offset.width + dragOffset.width : 0,
-                y: showContent ? offset.height + dragOffset.height : 0
+                x: offset.width + dragOffset.width,
+                y: offset.height + dragOffset.height
             )
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.9), value: offset)
             .position(

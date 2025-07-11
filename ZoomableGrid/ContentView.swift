@@ -133,6 +133,8 @@ struct ContentView: View {
     @State private var showFullscreenImage: Bool = false
     @State private var selectedCellFrame: CGRect = .zero
     @State private var dismissTargetFrame: CGRect = .zero
+    @State private var blueGridController: GridCollectionViewController? = nil
+    @State private var redGridController: GridCollectionViewController? = nil
 
     // Namespaces for animations
     @Namespace private var gridCollapseNamespace
@@ -525,7 +527,12 @@ struct ContentView: View {
                     photos: photos,
                     selectedIndex: $selectedImageIndex,
                     isPresented: $showFullscreenImage,
-                    sourceFrame: selectedCellFrame
+                    initialFrame: selectedCellFrame,
+                    frameForIndex: { index in
+                        // Always calculate frame based on current grid
+                        let columns = redGridOpacity > 0.5 ? 3 : 5
+                        return getFrameForIndex(index: index, columns: columns)
+                    }
                 )
                 .transition(.identity)
                 .zIndex(100)
@@ -557,6 +564,27 @@ struct ContentView: View {
     // These functions are now handled by the UICollectionView internally
     
     // Removed animation functions - no longer needed
+    
+    private func getFrameForIndex(index: Int, columns: Int) -> CGRect? {
+        // Calculate approximate frame based on grid layout
+        // This is a simplified calculation that assumes the grid is visible
+        guard index >= 0 && index < photos.count else { return nil }
+        
+        // Get the size of the screen
+        let screenWidth = UIScreen.main.bounds.width
+        let cellWidth = (screenWidth - CGFloat(columns - 1) * gridSpacing) / CGFloat(columns)
+        let cellHeight = cellWidth // Square cells
+        
+        // Calculate position
+        let row = index / columns
+        let col = index % columns
+        
+        let x = CGFloat(col) * (cellWidth + gridSpacing)
+        let y = CGFloat(row) * (cellHeight + gridSpacing) + safeAreaInsets.top
+        
+        // For now, return the cell frame (not accounting for image aspect ratio within cell)
+        return CGRect(x: x, y: y, width: cellWidth, height: cellHeight)
+    }
 
     // MARK: - Photo Library Methods
 

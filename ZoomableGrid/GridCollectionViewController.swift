@@ -74,6 +74,7 @@ class GridCollectionViewController: UIViewController {
     // Callbacks
     var onVisibleItemsChanged: ((Set<Int>, Int) -> Void)?
     var onImageTapped: ((GridItemData, CGRect) -> Void)?
+    var frameForIndex: ((Int) -> CGRect?)?
     
     // Tracking visible items
     private var visibleItems: Set<Int> = []
@@ -134,6 +135,59 @@ class GridCollectionViewController: UIViewController {
         guard item >= 0 && item < photos.count else { return }
         let indexPath = IndexPath(item: item, section: 0)
         collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
+    }
+    
+    func getFrameForIndex(_ index: Int) -> CGRect? {
+        guard index >= 0 && index < photos.count else { return nil }
+        let indexPath = IndexPath(item: index, section: 0)
+        
+        // Make sure the cell is visible or get its frame from layout
+        if let cell = collectionView.cellForItem(at: indexPath) {
+            return getImageFrameInCell(cell, at: indexPath)
+        }
+        return nil
+    }
+    
+    private func getImageFrameInCell(_ cell: UICollectionViewCell, at indexPath: IndexPath) -> CGRect? {
+        guard indexPath.item < photos.count else { return nil }
+        
+        let itemData = photos[indexPath.item]
+        let cellFrame = cell.frame
+        var imageFrame = cellFrame
+        
+        // If in fit mode, calculate the actual image position within the cell
+        if !useImageFill {
+            let cellAspect = cellFrame.width / cellFrame.height
+            let imageAspect = itemData.aspectRatio
+            
+            if imageAspect > cellAspect {
+                // Image is wider - has vertical padding
+                let imageHeight = cellFrame.width / imageAspect
+                let yOffset = (cellFrame.height - imageHeight) / 2
+                imageFrame = CGRect(
+                    x: cellFrame.origin.x,
+                    y: cellFrame.origin.y + yOffset,
+                    width: cellFrame.width,
+                    height: imageHeight
+                )
+            } else {
+                // Image is taller - has horizontal padding
+                let imageWidth = cellFrame.height * imageAspect
+                let xOffset = (cellFrame.width - imageWidth) / 2
+                imageFrame = CGRect(
+                    x: cellFrame.origin.x + xOffset,
+                    y: cellFrame.origin.y,
+                    width: imageWidth,
+                    height: cellFrame.height
+                )
+            }
+        }
+        
+        // Convert to window coordinates
+        if let window = collectionView.window {
+            return collectionView.convert(imageFrame, to: nil)
+        }
+        return imageFrame
     }
     
     func updateVisibleItems() {

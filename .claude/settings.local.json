@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(log show:*)"
+      "Bash(log show:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

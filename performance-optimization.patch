@@ -1,0 +1,74 @@
+--- ContentView.swift	original
++++ ContentView.swift	optimized
+@@ -523,7 +523,7 @@
+             
+             // Fullscreen image overlay with paging
+             if showFullscreenImage {
+-                FullscreenPagingView(
++                OptimizedFullscreenPagingView(
+                     photos: photos,
+                     selectedIndex: $selectedImageIndex,
+                     isPresented: $showFullscreenImage,
+@@ -536,6 +536,7 @@
+                 )
+                 .transition(.identity)
+                 .zIndex(100)
+                 .ignoresSafeArea()
++                .monitorPerformance("fullscreenPresentation")
+             }
+         } // End of GeometryReader
+         .ignoresSafeArea()
+
+--- GridCollectionViewController.swift	original
++++ GridCollectionViewController.swift	optimized
+@@ -288,6 +288,7 @@
+         }
+         
+         // Calculate the frame of the tapped cell
++        PerformanceMonitor.shared.startMeasuring("frameCalculation")
+         let cellFrame = collectionView.convert(cell.frame, to: self.view)
+         
+         // Calculate the actual image frame within the cell
+@@ -337,6 +338,7 @@
+             self.delegate?.cellTapped(at: indexPath.item, frame: cellFrame)
+         }
+         #endif
++        PerformanceMonitor.shared.endMeasuring("frameCalculation")
+     }
+
+// In ContentView.swift - Replace blur effects with OptimizedBlurView:
+
+-                GridCollectionView(
+-                    photos: photos,
+-                    gridColumns: 5,
+-                    contentMode: gridCellContentMode,
+-                    scrollOffset: $blueGridScrollOffset,
+-                    centerItem: $centerVisibleItem,
+-                    delegate: blueGridDelegate,
+-                    selectedItem: $selectedImageIndex,
+-                    showFullscreenImage: $showFullscreenImage,
+-                    selectedCellFrame: $selectedCellFrame
+-                )
+-                .opacity(blueGridOpacity)
+-                .blur(radius: blueGridBlur)
+-                .animation(.easeInOut(duration: 0.3), value: blueGridBlur)
+-                .animation(.easeInOut(duration: 0.3), value: blueGridOpacity)
++                OptimizedBlurView(
++                    blurRadius: blueGridBlur,
++                    opacity: blueGridOpacity,
++                    isEnabled: showBlueGrid
++                ) {
++                    GridCollectionView(
++                        photos: photos,
++                        gridColumns: 5,
++                        contentMode: gridCellContentMode,
++                        scrollOffset: $blueGridScrollOffset,
++                        centerItem: $centerVisibleItem,
++                        delegate: blueGridDelegate,
++                        selectedItem: $selectedImageIndex,
++                        showFullscreenImage: $showFullscreenImage,
++                        selectedCellFrame: $selectedCellFrame
++                    )
++                }
+
+// Similar changes for red grid...
