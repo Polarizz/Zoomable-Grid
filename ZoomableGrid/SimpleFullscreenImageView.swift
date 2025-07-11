@@ -35,7 +35,7 @@ struct SimpleFullscreenImageView: View {
         ZStack {
             // Background - only fades, doesn't move or scale
             Color.black
-                .opacity(showContent ? (1.0 - abs(dragOffset.height) / 300.0).clamped(to: 0...1) : 0)
+                .opacity(showContent ? (1.0 - max(abs(dragOffset.height), abs(dragOffset.width)) / 300.0).clamped(to: 0...1) : 0)
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.3), value: showContent)
                 .onTapGesture {
@@ -75,7 +75,7 @@ struct SimpleFullscreenImageView: View {
                 }
             }
             .offset(dragOffset)
-            .scaleEffect(1.0 - min(abs(dragOffset.height) / 1000.0, 0.3))
+            .scaleEffect(1.0 - min(max(abs(dragOffset.height), abs(dragOffset.width)) / 1000.0, 0.3))
             .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.8), value: dragOffset)
         }
         .gesture(
@@ -86,7 +86,7 @@ struct SimpleFullscreenImageView: View {
                     }
                 }
                 .onEnded { value in
-                    if abs(value.translation.height) > 100 {
+                    if abs(value.translation.height) > 100 || abs(value.translation.width) > 100 {
                         dismissView()
                     } else {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

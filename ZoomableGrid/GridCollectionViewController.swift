@@ -118,7 +118,7 @@ class GridCollectionViewController: UIViewController {
     }
     
     private func updateCellCornerRadius() {
-        let cornerRadius: CGFloat = numberOfColumns == 5 ? 7 : 10
+        let cornerRadius: CGFloat = numberOfColumns == 5 ? 5 : 10
         collectionView?.visibleCells.forEach { cell in
             (cell as? GridCollectionViewCell)?.cornerRadius = cornerRadius
         }
@@ -214,7 +214,7 @@ extension GridCollectionViewController: UICollectionViewDataSource {
         let itemData = photos[indexPath.item]
         cell.configure(with: itemData, targetSize: thumbnailSize)
         cell.useImageFill = useImageFill
-        cell.cornerRadius = numberOfColumns == 5 ? 7 : 10
+        cell.cornerRadius = numberOfColumns == 5 ? 5 : 10
         cell.delegate = self
         
         return cell

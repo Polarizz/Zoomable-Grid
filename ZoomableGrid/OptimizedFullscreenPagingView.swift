@@ -54,8 +54,8 @@ struct OptimizedFullscreenPagingView: View {
             }
             .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
             .ignoresSafeArea()
-            .offset(y: dragOffset.height)
-            .scaleEffect(1.0 - min(abs(dragOffset.height) / 1000.0, 0.3))
+            .offset(dragOffset)
+            .scaleEffect(1.0 - min(max(abs(dragOffset.height), abs(dragOffset.width)) / 1000.0, 0.3))
             .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.8), value: dragOffset)
         }
         .onAppear {
@@ -75,21 +75,19 @@ struct OptimizedFullscreenPagingView: View {
     private func createDismissGesture() -> some Gesture {
         DragGesture()
             .onChanged { value in
-                // Only respond to vertical drags for dismissal
-                if abs(value.translation.height) > abs(value.translation.width) {
-                    dragOffset = value.translation
-                    let dragDistance = abs(value.translation.height)
-                    backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
-                    
-                    if dragDistance > 10 {
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            sidePhotosOpacity = 0.0
-                        }
+                // Allow both vertical and horizontal drags for dismissal
+                dragOffset = value.translation
+                let dragDistance = max(abs(value.translation.height), abs(value.translation.width))
+                backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
+                
+                if dragDistance > 10 {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        sidePhotosOpacity = 0.0
                     }
                 }
             }
             .onEnded { value in
-                if abs(value.translation.height) > 100 {
+                if abs(value.translation.height) > 100 || abs(value.translation.width) > 100 {
                     dismissView()
                 } else {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

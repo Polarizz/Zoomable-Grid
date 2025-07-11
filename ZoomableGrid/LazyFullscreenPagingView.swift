@@ -75,16 +75,14 @@ struct LazyFullscreenPagingView: View {
                             state = value.translation
                         }
                         .onChanged { value in
-                            // Handle vertical drag for dismissal feedback
-                            if abs(value.translation.height) > abs(value.translation.width) {
-                                dragOffset = value.translation
-                                let dragDistance = abs(value.translation.height)
-                                backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
-                                
-                                if dragDistance > 10 {
-                                    withAnimation(.easeOut(duration: 0.1)) {
-                                        sidePhotosOpacity = 0.0
-                                    }
+                            // Handle drag for dismissal feedback
+                            dragOffset = value.translation
+                            let dragDistance = max(abs(value.translation.height), abs(value.translation.width))
+                            backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
+                            
+                            if dragDistance > 10 {
+                                withAnimation(.easeOut(duration: 0.1)) {
+                                    sidePhotosOpacity = 0.0
                                 }
                             }
                         }
@@ -92,33 +90,38 @@ struct LazyFullscreenPagingView: View {
                             let horizontalThreshold = geometry.size.width * 0.25
                             let verticalThreshold: CGFloat = 100
                             
-                            // Check for vertical dismissal first
-                            if abs(value.translation.height) > verticalThreshold && 
-                               abs(value.translation.height) > abs(value.translation.width) {
-                                dismissView()
-                            } 
-                            // Then check for horizontal paging
-                            else if abs(value.translation.width) > abs(value.translation.height) {
-                                if value.translation.width > horizontalThreshold && currentPage > 0 {
+                            // Check for dismissal (both vertical and horizontal)
+                            if abs(value.translation.height) > verticalThreshold || abs(value.translation.width) > verticalThreshold {
+                                // If at edges of collection and swiping outward, dismiss
+                                if (currentPage == 0 && value.translation.width > verticalThreshold) ||
+                                   (currentPage == photos.count - 1 && value.translation.width < -verticalThreshold) ||
+                                   abs(value.translation.height) > verticalThreshold {
+                                    dismissView()
+                                    return
+                                }
+                            }
+                            
+                            // Check for horizontal paging only if not dismissing
+                            if abs(value.translation.width) > horizontalThreshold {
+                                if value.translation.width > 0 && currentPage > 0 {
                                     currentPage -= 1
-                                } else if value.translation.width < -horizontalThreshold && currentPage < photos.count - 1 {
+                                } else if value.translation.width < 0 && currentPage < photos.count - 1 {
                                     currentPage += 1
                                 }
                             }
-                            // Reset if neither threshold met
-                            else {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    dragOffset = .zero
-                                    backgroundOpacity = 1.0
-                                    sidePhotosOpacity = 1.0
-                                }
+                            
+                            // Reset if no action taken
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                dragOffset = .zero
+                                backgroundOpacity = 1.0
+                                sidePhotosOpacity = 1.0
                             }
                         }
                 )
             }
         }
-        .offset(y: dragOffset.height)
-        .scaleEffect(1.0 - min(abs(dragOffset.height) / 1000.0, 0.3))
+        .offset(dragOffset)
+        .scaleEffect(1.0 - min(max(abs(dragOffset.height), abs(dragOffset.width)) / 1000.0, 0.3))
         .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.8), value: dragOffset)
         .onAppear {
             currentPage = selectedIndex
@@ -151,21 +154,19 @@ struct LazyFullscreenPagingView: View {
     private func createDragGesture() -> some Gesture {
         DragGesture()
             .onChanged { value in
-                // Only respond to vertical drags for dismissal
-                if abs(value.translation.height) > abs(value.translation.width) {
-                    dragOffset = value.translation
-                    let dragDistance = abs(value.translation.height)
-                    backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
-                    
-                    if dragDistance > 10 {
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            sidePhotosOpacity = 0.0
-                        }
+                // Allow both vertical and horizontal drags for dismissal
+                dragOffset = value.translation
+                let dragDistance = max(abs(value.translation.height), abs(value.translation.width))
+                backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
+                
+                if dragDistance > 10 {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        sidePhotosOpacity = 0.0
                     }
                 }
             }
             .onEnded { value in
-                if abs(value.translation.height) > 100 {
+                if abs(value.translation.height) > 100 || abs(value.translation.width) > 100 {
                     dismissView()
                 } else {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

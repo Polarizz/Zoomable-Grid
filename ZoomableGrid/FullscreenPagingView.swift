@@ -47,12 +47,12 @@ struct FullscreenPagingView: View {
                         shouldPreload: shouldPreloadImage(at: index),
                         onDragChanged: { offset in
                             dragOffset = offset
-                            // Calculate opacity based on drag distance
-                            let dragDistance = abs(offset.height)
+                            // Calculate opacity based on drag distance (both horizontal and vertical)
+                            let dragDistance = max(abs(offset.height), abs(offset.width))
                             backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
                             
                             // Immediately hide side photos when dragging starts
-                            if abs(offset.height) > 0 {
+                            if dragDistance > 0 {
                                 withAnimation(.easeOut(duration: 0.1)) {
                                     sidePhotosOpacity = 0.0
                                 }
@@ -333,7 +333,7 @@ struct InteractiveImageView: View {
                 height: showContent ? imageSize.height : sourceFrame.height
             )
             .cornerRadius(showContent ? 0 : 8)
-            .scaleEffect(showContent ? combinedScale * (1.0 - min(abs(dragOffset.height) / 1000.0, 0.3)) : 1.0)
+            .scaleEffect(showContent ? combinedScale * (1.0 - min(max(abs(dragOffset.height), abs(dragOffset.width)) / 1000.0, 0.3)) : 1.0)
             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.9), value: combinedScale)
             .offset(
                 x: showContent ? offset.width + dragOffset.width : 0,
@@ -375,11 +375,9 @@ struct InteractiveImageView: View {
                 DragGesture()
                     .onChanged { value in
                         if currentScale <= 1.0 && isCurrentPage {
-                            // Only allow vertical drag for dismissal
-                            if abs(value.translation.height) > abs(value.translation.width) {
-                                dragOffset = value.translation
-                                onDragChanged(value.translation)
-                            }
+                            // Allow both vertical and horizontal drag for dismissal
+                            dragOffset = value.translation
+                            onDragChanged(value.translation)
                         } else if currentScale > 1.0 {
                             // Allow panning when zoomed
                             offset = CGSize(
@@ -390,7 +388,7 @@ struct InteractiveImageView: View {
                     }
                     .onEnded { value in
                         if currentScale <= 1.0 && isCurrentPage {
-                            let shouldDismiss = abs(value.translation.height) > 100
+                            let shouldDismiss = abs(value.translation.height) > 100 || abs(value.translation.width) > 100
                             onDragEnded(shouldDismiss)
                             if !shouldDismiss {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

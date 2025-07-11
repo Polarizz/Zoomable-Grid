@@ -75,7 +75,7 @@ struct ContentView: View {
     private let thumbnailSize = CGSize(width: 300, height: 300)
 
     // Grid spacing configuration - single source of truth
-    private let gridSpacing: CGFloat = 2.0 // Spacing between grid items
+    private let gridSpacing: CGFloat = 3.0 // Spacing between grid items
     private let itemPadding: CGFloat = 0.0 // Padding inside each grid item
 
     // Constants for zoom behavior
@@ -162,7 +162,7 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color.black)
                 } else if authorizationStatus == .denied || authorizationStatus == .restricted {
                     VStack(spacing: 20) {
                         Image(systemName: "photo.on.rectangle.angled")
@@ -183,7 +183,7 @@ struct ContentView: View {
                         .buttonStyle(.borderedProminent)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color.black)
                 } else if photos.isEmpty && !isLoadingPhotos {
                     VStack(spacing: 20) {
                         Image(systemName: "photo.stack")
@@ -196,7 +196,7 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color.black)
                 } else {
                     ZStack {
                         // Original 5-column blue grid using UICollectionView
@@ -572,6 +572,7 @@ struct ContentView: View {
             }
         } // End of GeometryReader
         .ignoresSafeArea()
+        .background(Color.black)
     }
 
 
