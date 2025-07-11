@@ -98,6 +98,7 @@ struct SingleFullscreenView: View {
     @State private var currentScale: CGFloat = 1.0
     @State private var showContent: Bool = false
     @State private var fullImage: UIImage? = nil
+    @State private var imageOpacity: Double = 1.0
     
     private let imageManager = PHImageManager.default()
     
@@ -118,6 +119,7 @@ struct SingleFullscreenView: View {
                         showContent: $showContent,
                         currentScale: $currentScale,
                         dragOffset: $dragOffset,
+                        imageOpacity: $imageOpacity,
                         isCurrentPage: isCurrentPage,
                         onDragChanged: onDragChanged,
                         onDragEnded: onDragEnded
@@ -140,7 +142,13 @@ struct SingleFullscreenView: View {
                                 currentScale = 1.0
                                 dragOffset = .zero
                             }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            // Fade out the image after it reaches the root position
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    imageOpacity = 0
+                                }
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                                 onDismissComplete()
                             }
                         }
@@ -196,6 +204,7 @@ struct InteractiveImageView: View {
     @Binding var showContent: Bool
     @Binding var currentScale: CGFloat
     @Binding var dragOffset: CGSize
+    @Binding var imageOpacity: Double
     let isCurrentPage: Bool
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: (Bool) -> Void
@@ -247,7 +256,9 @@ struct InteractiveImageView: View {
                 x: showContent ? geometry.size.width / 2 : sourceFrame.midX,
                 y: showContent ? geometry.size.height / 2 : sourceFrame.midY
             )
+            .opacity(imageOpacity)
             .animation(.smooth(duration: 0.35), value: showContent)
+            .animation(.easeOut(duration: 0.15), value: imageOpacity)
             .onTapGesture(count: 2) {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     if currentScale > 1 {
