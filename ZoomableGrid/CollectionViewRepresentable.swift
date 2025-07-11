@@ -21,8 +21,8 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
     let topSafeAreaInset: CGFloat
     let bottomSafeAreaInset: CGFloat
     
-    let onItemTapped: (Int, CGRect) -> Void
     let onVisibleItemsChanged: (Set<Int>, Int) -> Void
+    let onImageTapped: ((GridItemData, CGRect) -> Void)?
     @Binding var scrollToItem: Int?
     
     func makeUIViewController(context: Context) -> GridCollectionViewController {
@@ -34,8 +34,8 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
         controller.isScrollEnabled = isScrollEnabled
         controller.topSafeAreaInset = topSafeAreaInset
         controller.bottomSafeAreaInset = bottomSafeAreaInset
-        controller.onItemTapped = onItemTapped
         controller.onVisibleItemsChanged = onVisibleItemsChanged
+        controller.onImageTapped = onImageTapped
         
         context.coordinator.viewController = controller
         

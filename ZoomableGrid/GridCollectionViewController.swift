@@ -72,15 +72,22 @@ class GridCollectionViewController: UIViewController {
     }
     
     // Callbacks
-    var onItemTapped: ((Int, CGRect) -> Void)?
     var onVisibleItemsChanged: ((Set<Int>, Int) -> Void)?
+    var onImageTapped: ((GridItemData, CGRect) -> Void)?
     
     // Tracking visible items
     private var visibleItems: Set<Int> = []
     private var centerVisibleItem: Int = 0
     
-    // Image loading
-    private let thumbnailSize = CGSize(width: 300, height: 300)
+    // Image loading - Use screen scale for better quality
+    private var thumbnailSize: CGSize {
+        let scale = UIScreen.main.scale
+        let baseSize: CGFloat = 200 // Base size for thumbnails
+        return CGSize(width: baseSize * scale, height: baseSize * scale)
+    }
+    
+    // Prefetch cache
+    private var prefetchCache: [IndexPath: PHImageRequestID] = [:]
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -97,6 +104,7 @@ class GridCollectionViewController: UIViewController {
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
         collectionView.dataSource = self
+        collectionView.prefetchDataSource = self
         collectionView.register(GridCollectionViewCell.self, forCellWithReuseIdentifier: GridCollectionViewCell.identifier)
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.showsVerticalScrollIndicator = false
@@ -207,6 +215,7 @@ extension GridCollectionViewController: UICollectionViewDataSource {
         cell.configure(with: itemData, targetSize: thumbnailSize)
         cell.useImageFill = useImageFill
         cell.cornerRadius = numberOfColumns == 5 ? 7 : 10
+        cell.delegate = self
         
         return cell
     }
@@ -214,13 +223,74 @@ extension GridCollectionViewController: UICollectionViewDataSource {
 
 // MARK: - UICollectionViewDelegate
 extension GridCollectionViewController: UICollectionViewDelegate {
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard let cell = collectionView.cellForItem(at: indexPath) else { return }
-        let globalFrame = cell.convert(cell.bounds, to: nil)
-        onItemTapped?(indexPath.item, globalFrame)
-    }
-    
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         updateVisibleItems()
+    }
+}
+
+// MARK: - GridCollectionViewCellDelegate
+extension GridCollectionViewController: GridCollectionViewCellDelegate {
+    func cellTapped(_ cell: GridCollectionViewCell) {
+        guard var itemData = cell.currentItemData else { return }
+        
+        // If we have a loaded thumbnail, create a new GridItemData with it
+        if let loadedImage = cell.loadedImage, itemData.image == nil {
+            itemData = GridItemData(
+                asset: itemData.asset,
+                image: loadedImage,
+                id: itemData.id,
+                aspectRatio: itemData.aspectRatio
+            )
+        }
+        
+        // Get the cell's frame in the collection view's coordinate system
+        let cellFrame = cell.frame
+        
+        // Convert to window coordinates
+        if let window = collectionView.window {
+            let frameInWindow = collectionView.convert(cellFrame, to: window)
+            onImageTapped?(itemData, frameInWindow)
+        } else {
+            onImageTapped?(itemData, cellFrame)
+        }
+    }
+}
+
+// MARK: - UICollectionViewDataSourcePrefetching
+extension GridCollectionViewController: UICollectionViewDataSourcePrefetching {
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = false
+        options.resizeMode = .fast
+        
+        for indexPath in indexPaths {
+            guard indexPath.item < photos.count else { continue }
+            let itemData = photos[indexPath.item]
+            
+            guard let asset = itemData.asset else { continue }
+            
+            // Start loading the image
+            let requestID = PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: thumbnailSize,
+                contentMode: .aspectFill,
+                options: options
+            ) { _, _ in
+                // Just prefetching, we don't need to do anything with the image
+            }
+            
+            prefetchCache[indexPath] = requestID
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        for indexPath in indexPaths {
+            if let requestID = prefetchCache[indexPath] {
+                PHImageManager.default().cancelImageRequest(requestID)
+                prefetchCache.removeValue(forKey: indexPath)
+            }
+        }
     }
 }

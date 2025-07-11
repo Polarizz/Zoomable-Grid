@@ -43,57 +43,15 @@ struct GridItemData: Identifiable {
         self.image = image
         self.aspectRatio = image.size.width / image.size.height
     }
-}
-
-struct PhotoGridImage: View {
-    let itemData: GridItemData
-    let targetSize: CGSize
-    let contentMode: ContentMode
-    @State private var loadedImage: UIImage?
-
-    private let imageManager = PHImageManager.default()
-
-    var body: some View {
-        Group {
-            if let image = loadedImage ?? itemData.image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-            } else {
-                Image(systemName: "photo")
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .onAppear {
-            loadImageIfNeeded()
-        }
-    }
-
-    private func loadImageIfNeeded() {
-        guard loadedImage == nil, let asset = itemData.asset else { return }
-
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.isSynchronous = false
-
-        imageManager.requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, info in
-            // Check for errors
-            if let error = info?[PHImageErrorKey] as? Error {
-                print("Error loading image: \(error.localizedDescription)")
-                return
-            }
-            
-            // Only proceed if we have an image
-            if let image = image {
-                Task { @MainActor in
-                    self.loadedImage = image
-                }
-            }
-        }
+    
+    init(asset: PHAsset?, image: UIImage?, id: String, aspectRatio: CGFloat) {
+        self.id = id
+        self.asset = asset
+        self.image = image
+        self.aspectRatio = aspectRatio
     }
 }
+
 
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -114,7 +72,6 @@ struct ContentView: View {
     // Image manager for loading photos
     private let imageManager = PHImageManager.default()
     private let thumbnailSize = CGSize(width: 300, height: 300)
-    private let fullImageSize = CGSize(width: 1024, height: 1024)
 
     // Grid spacing configuration - single source of truth
     private let gridSpacing: CGFloat = 2.0 // Spacing between grid items
@@ -155,15 +112,6 @@ struct ContentView: View {
     @State private var gestureStarted: Bool = false
     @State private var initialTargetRedGridItem: Int? = nil
 
-    // Expansion states
-    @State private var selectedItem: Int? = nil
-    @State private var showFullscreen: Bool = false
-    @State private var expandedFromFiveGrid: Bool = true
-    @State private var selectedItemFrame: CGRect = .zero
-    @State private var itemFrames: [Int: CGRect] = [:]
-    @State private var overlayOpacity: Double = 0.0
-    @State private var overlayBlur: Double = 0.0
-    @State private var currentPageItem: Int = 0
 
     // Image display mode
     @State private var useImageFill: Bool = true
@@ -179,12 +127,14 @@ struct ContentView: View {
     
     // Remove staggered animation states - no longer needed
 
+    // Fullscreen image state
+    @State private var selectedImageData: GridItemData? = nil
+    @State private var showFullscreenImage: Bool = false
+    @State private var selectedCellFrame: CGRect = .zero
 
     // Namespaces for animations
-    @Namespace private var fiveGridNamespace
-    @Namespace private var threeGridNamespace
-    @Namespace private var collapseNamespace
     @Namespace private var gridCollapseNamespace
+    @Namespace private var imageExpansionNamespace
 
     var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: 5)
@@ -259,18 +209,14 @@ struct ContentView: View {
                             blur: blueGridBlur,
                             topSafeAreaInset: safeAreaInsets.top,
                             bottomSafeAreaInset: safeAreaInsets.bottom,
-                            onItemTapped: { item, globalFrame in
-                                selectedItemFrame = globalFrame
-                                selectedItem = item
-                                currentPageItem = item
-                                expandedFromFiveGrid = true
-                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                    showFullscreen = true
-                                }
-                            },
                             onVisibleItemsChanged: { items, centerItem in
                                 visibleItems = items
                                 centerVisibleItem = centerItem
+                            },
+                            onImageTapped: { itemData, frame in
+                                selectedImageData = itemData
+                                selectedCellFrame = frame
+                                showFullscreenImage = true
                             },
                             scrollToItem: $blueGridScrollToItem
                         )
@@ -293,20 +239,16 @@ struct ContentView: View {
                             blur: redGridBlur,
                             topSafeAreaInset: safeAreaInsets.top,
                             bottomSafeAreaInset: safeAreaInsets.bottom,
-                            onItemTapped: { item, globalFrame in
-                                selectedItemFrame = globalFrame
-                                selectedItem = item
-                                currentPageItem = item
-                                expandedFromFiveGrid = false
-                                withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                    showFullscreen = true
-                                }
-                            },
                             onVisibleItemsChanged: { items, centerItem in
                                 if redGridOpacity > 0.5 {
                                     redGridVisibleItems = items
                                     redGridCenterItem = centerItem
                                 }
+                            },
+                            onImageTapped: { itemData, frame in
+                                selectedImageData = itemData
+                                selectedCellFrame = frame
+                                showFullscreenImage = true
                             },
                             scrollToItem: $redGridScrollToItem
                         )
@@ -466,107 +408,6 @@ struct ContentView: View {
                     }
             )
 
-            // Fullscreen overlay
-            if let item = selectedItem {
-                ZStack {
-                    // Background
-                    Color.black
-                        .opacity(showFullscreen ? 0.9 : 0)
-                        .ignoresSafeArea()
-                        .animation(.easeInOut(duration: 0.3), value: showFullscreen)
-                        .onTapGesture {
-                            // Keep the existing frame for animation back
-
-                            withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                showFullscreen = false
-                            }
-                            Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                selectedItem = nil
-                            }
-                        }
-
-                    // Animated square that transitions from grid to fullscreen
-                    GeometryReader { geo in
-                        let maxWidth = geo.size.width - 40
-                        let maxHeight = geo.size.height - 100
-
-                        // Calculate expanded size based on current page item
-                        let expandedItemData = getItemData(for: currentPageItem)
-                        let expandedWidth = min(maxWidth, maxHeight / expandedItemData.aspectRatio)
-                        let expandedHeight = expandedWidth * expandedItemData.aspectRatio
-
-                        if showFullscreen {
-                            // Horizontal ScrollView with paging
-                            ScrollViewReader { scrollProxy in
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    LazyHStack(spacing: 0) {
-                                        // Only render items within a range to improve performance
-                                        let startIndex = max(0, item - 50)
-                                        let endIndex = min(photos.count, item + 50)
-                                        ForEach(startIndex..<endIndex, id: \.self) { index in
-                                            let itemData = getItemData(for: index)
-                                            ZStack {
-                                                let itemWidth = min(maxWidth, maxHeight / itemData.aspectRatio)
-                                                let itemHeight = itemWidth * itemData.aspectRatio
-
-                                                PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: .fit)
-                                                    .cornerRadius(expandedFromFiveGrid ? 7 : 10)
-                                                    .frame(width: itemWidth, height: itemHeight)
-                                                    .onTapGesture {
-                                                        // Keep the existing frame for animation back
-
-                                                        withAnimation(.smooth(duration: 0.39, extraBounce: 0.3)) {
-                                                            showFullscreen = false
-                                                        }
-                                                        Task { @MainActor in
-                                                            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                                            selectedItem = nil
-                                                        }
-                                                    }
-                                            }
-                                            .frame(width: geo.size.width, height: geo.size.height)
-                                            .id(index)
-                                            .onAppear {
-                                                if abs(Double(index) - Double(currentPageItem)) < 2 {
-                                                    currentPageItem = index
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                .scrollTargetBehavior(.paging)
-                                .scrollTargetLayout()
-                                .onAppear {
-                                    scrollProxy.scrollTo(item, anchor: .center)
-                                }
-                            }
-                        }
-
-                        // Animated transition square
-                        let itemData = getItemData(for: currentPageItem)
-                        RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10)
-                            .fill(Color.clear)
-                            .frame(
-                                width: showFullscreen ? expandedWidth : selectedItemFrame.width,
-                                height: showFullscreen ? expandedHeight : selectedItemFrame.height
-                            )
-                            .overlay(
-                                PhotoGridImage(itemData: itemData, targetSize: fullImageSize, contentMode: useImageFill ? .fill : .fit)
-                                    .cornerRadius(useImageFill ? 0 : (expandedFromFiveGrid ? 7 : 10))
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: expandedFromFiveGrid ? 7 : 10))
-                            .position(
-                                x: showFullscreen ? geo.size.width / 2 : selectedItemFrame.midX,
-                                y: showFullscreen ? geo.size.height / 2 : selectedItemFrame.midY
-                            )
-                            .opacity(showFullscreen ? 0 : 1)
-                            .animation(.smooth(duration: 0.39, extraBounce: 0.3), value: showFullscreen)
-                    }
-                }
-                .zIndex(1000)
-                .allowsHitTesting(selectedItem != nil)
-            }
 
             // Toggle overlay at the bottom
             VStack {
@@ -669,17 +510,21 @@ struct ContentView: View {
                     loadPhotosFromLibrary()
                 }
             }
+            
+            // Fullscreen image overlay
+            if showFullscreenImage, let imageData = selectedImageData {
+                FullscreenImageView(
+                    itemData: imageData,
+                    isPresented: $showFullscreenImage,
+                    sourceFrame: selectedCellFrame
+                )
+                .transition(.identity)
+                .zIndex(100)
+            }
         } // End of GeometryReader
         .ignoresSafeArea()
     }
 
-    func getItemData(for index: Int) -> GridItemData {
-        guard index >= 0 && index < photos.count else {
-            // Return a placeholder if index is out of bounds
-            return GridItemData(image: UIImage(systemName: "photo")!, id: "placeholder-\(index)")
-        }
-        return photos[index]
-    }
 
     func getRedGridPosition(geometry: GeometryProxy) -> CGPoint {
         let baseX = geometry.size.width / 2

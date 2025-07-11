@@ -8,8 +8,14 @@
 import UIKit
 import Photos
 
+protocol GridCollectionViewCellDelegate: AnyObject {
+    func cellTapped(_ cell: GridCollectionViewCell)
+}
+
 class GridCollectionViewCell: UICollectionViewCell {
     static let identifier = "GridCollectionViewCell"
+    
+    weak var delegate: GridCollectionViewCellDelegate?
     
     private let containerView: UIView = {
         let view = UIView()
@@ -37,6 +43,11 @@ class GridCollectionViewCell: UICollectionViewCell {
     private var currentRequestID: PHImageRequestID?
     private let imageManager = PHImageManager.default()
     private var imageAspectRatio: CGFloat = 1.0
+    
+    var currentItemData: GridItemData?
+    var loadedImage: UIImage? {
+        return imageView.image
+    }
     
     var useImageFill: Bool = true {
         didSet {
@@ -86,6 +97,11 @@ class GridCollectionViewCell: UICollectionViewCell {
         backgroundColor = .clear
         containerView.layer.cornerRadius = cornerRadius
         
+        // Add tap gesture recognizer
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        contentView.addGestureRecognizer(tapGesture)
+        contentView.isUserInteractionEnabled = true
+        
         updateImageFrame(animated: false)
     }
     
@@ -132,12 +148,19 @@ class GridCollectionViewCell: UICollectionViewCell {
         updateImageFrame(animated: true)
     }
     
+    @objc private func handleTap() {
+        delegate?.cellTapped(self)
+    }
+    
     override func layoutSubviews() {
         super.layoutSubviews()
         updateImageFrame(animated: false)
     }
     
     func configure(with itemData: GridItemData, targetSize: CGSize) {
+        // Store the item data
+        currentItemData = itemData
+        
         // Cancel any previous request
         if let requestID = currentRequestID {
             imageManager.cancelImageRequest(requestID)
@@ -158,9 +181,10 @@ class GridCollectionViewCell: UICollectionViewCell {
         } else if let asset = itemData.asset {
             // Load from PHAsset
             let options = PHImageRequestOptions()
-            options.deliveryMode = .highQualityFormat
+            options.deliveryMode = .opportunistic // Fast loading with progressive quality
             options.isNetworkAccessAllowed = true
             options.isSynchronous = false
+            options.resizeMode = .fast // Faster resizing
             
             currentRequestID = imageManager.requestImage(
                 for: asset,
