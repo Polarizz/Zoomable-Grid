@@ -20,6 +20,7 @@ struct FullscreenPagingView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var backgroundOpacity: Double = 0.0
     @State private var sidePhotosOpacity: Double = 1.0
+    @State private var preloadedIndices: Set<Int> = []
     
     var body: some View {
         ZStack {
@@ -88,9 +89,11 @@ struct FullscreenPagingView: View {
             withAnimation(.easeInOut(duration: 0.3)) {
                 backgroundOpacity = 1.0
             }
+            preloadAdjacentImages()
         }
         .onChange(of: currentPage) { _, newValue in
             selectedIndex = newValue
+            preloadAdjacentImages()
         }
     }
     
@@ -98,6 +101,53 @@ struct FullscreenPagingView: View {
         // Preload current image and 2 images on each side
         let distance = abs(index - currentPage)
         return distance <= 2
+    }
+    
+    private func preloadAdjacentImages() {
+        // Determine which indices need to be preloaded
+        let indicesToPreload = (max(0, currentPage - 2)...min(photos.count - 1, currentPage + 2))
+        
+        for index in indicesToPreload {
+            if !preloadedIndices.contains(index) {
+                preloadedIndices.insert(index)
+                // Trigger preload by accessing the view
+                if let asset = photos[index].asset {
+                    preloadImage(from: asset, at: index)
+                }
+            }
+        }
+    }
+    
+    private func preloadImage(from asset: PHAsset, at index: Int) {
+        let assetId = asset.localIdentifier
+        
+        // Skip if already cached
+        if SingleFullscreenView.imageCache[assetId] != nil {
+            return
+        }
+        
+        let imageManager = PHImageManager.default()
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        
+        let scale = UIScreen.main.scale
+        let targetSize = CGSize(
+            width: UIScreen.main.bounds.width * scale,
+            height: UIScreen.main.bounds.height * scale
+        )
+        
+        imageManager.requestImage(
+            for: asset,
+            targetSize: targetSize,
+            contentMode: .aspectFit,
+            options: options
+        ) { image, _ in
+            if let image = image {
+                // Cache the image
+                SingleFullscreenView.imageCache[assetId] = image
+            }
+        }
     }
 }
 
@@ -120,6 +170,9 @@ struct SingleFullscreenView: View {
     
     private let imageManager = PHImageManager.default()
     
+    // Static cache for preloaded images
+    static var imageCache: [String: UIImage] = [:]
+    
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -139,6 +192,7 @@ struct SingleFullscreenView: View {
                         dragOffset: $dragOffset,
                         imageOpacity: $imageOpacity,
                         isCurrentPage: isCurrentPage,
+                        isInitialAppearance: sourceFrame != .zero,
                         onDragChanged: onDragChanged,
                         onDragEnded: onDragEnded
                     )
@@ -190,6 +244,16 @@ struct SingleFullscreenView: View {
     private func loadFullImage(from asset: PHAsset) {
         guard fullImage == nil else { return }
         
+        let assetId = asset.localIdentifier
+        
+        // Check cache first
+        if let cachedImage = SingleFullscreenView.imageCache[assetId] {
+            DispatchQueue.main.async {
+                self.fullImage = cachedImage
+            }
+            return
+        }
+        
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
@@ -207,6 +271,9 @@ struct SingleFullscreenView: View {
             options: options
         ) { image, _ in
             if let image = image {
+                // Cache the image
+                SingleFullscreenView.imageCache[assetId] = image
+                
                 DispatchQueue.main.async {
                     self.fullImage = image
                 }
@@ -224,6 +291,7 @@ struct InteractiveImageView: View {
     @Binding var dragOffset: CGSize
     @Binding var imageOpacity: Double
     let isCurrentPage: Bool
+    let isInitialAppearance: Bool
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: (Bool) -> Void
     
@@ -275,7 +343,7 @@ struct InteractiveImageView: View {
                 y: showContent ? geometry.size.height / 2 : sourceFrame.midY
             )
             .opacity(imageOpacity)
-            .animation(.smooth(duration: 0.35), value: showContent)
+            .animation(isInitialAppearance ? .smooth(duration: 0.35) : nil, value: showContent)
             .animation(.easeOut(duration: 0.15), value: imageOpacity)
             .onTapGesture(count: 2) {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
