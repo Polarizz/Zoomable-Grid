@@ -243,15 +243,44 @@ extension GridCollectionViewController: GridCollectionViewCellDelegate {
             )
         }
         
-        // Get the cell's frame in the collection view's coordinate system
+        // Get the actual image frame within the cell
         let cellFrame = cell.frame
+        var imageFrame = cellFrame
+        
+        // If in fit mode, calculate the actual image position within the cell
+        if !useImageFill {
+            let cellAspect = cellFrame.width / cellFrame.height
+            let imageAspect = itemData.aspectRatio
+            
+            if imageAspect > cellAspect {
+                // Image is wider - has vertical padding
+                let imageHeight = cellFrame.width / imageAspect
+                let yOffset = (cellFrame.height - imageHeight) / 2
+                imageFrame = CGRect(
+                    x: cellFrame.origin.x,
+                    y: cellFrame.origin.y + yOffset,
+                    width: cellFrame.width,
+                    height: imageHeight
+                )
+            } else {
+                // Image is taller - has horizontal padding
+                let imageWidth = cellFrame.height * imageAspect
+                let xOffset = (cellFrame.width - imageWidth) / 2
+                imageFrame = CGRect(
+                    x: cellFrame.origin.x + xOffset,
+                    y: cellFrame.origin.y,
+                    width: imageWidth,
+                    height: cellFrame.height
+                )
+            }
+        }
         
         // Convert to window coordinates
         if let window = collectionView.window {
-            let frameInWindow = collectionView.convert(cellFrame, to: window)
+            let frameInWindow = collectionView.convert(imageFrame, to: window)
             onImageTapped?(itemData, frameInWindow)
         } else {
-            onImageTapped?(itemData, cellFrame)
+            onImageTapped?(itemData, imageFrame)
         }
     }
 }

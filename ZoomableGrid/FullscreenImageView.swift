@@ -19,6 +19,7 @@ struct FullscreenImageView: View {
     @State private var isLoadingFullImage: Bool = false
     @State private var showContent: Bool = false
     @State private var dismissalProgress: CGFloat = 0
+    @State private var isDraggingVertically: Bool = false
     
     // Zoom related states
     @State private var currentScale: CGFloat = 1.0
@@ -36,7 +37,7 @@ struct FullscreenImageView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
-                    .opacity(showContent ? (1.0 - min(abs(dragOffset.height) / 300.0, 1.0)) : 0)
+                    .opacity(showContent ? (1.0 - abs(dragOffset.height) / 300.0).clamped(to: 0...1) : 0)
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 0.3), value: showContent)
                 
@@ -50,7 +51,8 @@ struct FullscreenImageView: View {
                         isPresented: $isPresented,
                         currentScale: $currentScale,
                         offset: $offset,
-                        isCurrentPage: isCurrentPage
+                        isCurrentPage: isCurrentPage,
+                        dragOffset: dragOffset
                     )
                 } else if let asset = itemData.asset {
                     ZStack {
@@ -70,7 +72,8 @@ struct FullscreenImageView: View {
                                 isPresented: $isPresented,
                                 currentScale: $currentScale,
                                 offset: $offset,
-                                isCurrentPage: isCurrentPage
+                                isCurrentPage: isCurrentPage,
+                                dragOffset: dragOffset
                             )
                             .blur(radius: isLoadingFullImage ? 2 : 0)
                         }
@@ -81,12 +84,46 @@ struct FullscreenImageView: View {
                 }
             }
         }
+        .offset(dragOffset)
+        .scaleEffect(1.0 - min(abs(dragOffset.height) / 1000.0, 0.3))
+        .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.8), value: dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if currentScale <= 1 && isCurrentPage {
+                        let translation = value.translation
+                        // Only vertical drags
+                        if abs(translation.height) > abs(translation.width) {
+                            dragOffset = translation
+                        }
+                    }
+                }
+                .onEnded { value in
+                    if abs(value.translation.height) > 100 {
+                        // Dismiss
+                        withAnimation(.smooth(duration: 0.4)) {
+                            showContent = false
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            isPresented = false
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = .zero
+                        }
+                    }
+                }
+        )
         .onAppear {
-            if isCurrentPage && sourceFrame != .zero {
-                withAnimation(.smooth(duration: 0.4)) {
-                    showContent = true
+            if sourceFrame != .zero {
+                // Small delay to ensure view is laid out
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    withAnimation(.smooth(duration: 0.4)) {
+                        showContent = true
+                    }
                 }
             } else {
+                // Already in position (adjacent pages)
                 showContent = true
             }
         }
@@ -156,6 +193,7 @@ struct ZoomableImageView: View {
     @Binding var currentScale: CGFloat
     @Binding var offset: CGSize
     let isCurrentPage: Bool
+    let dragOffset: CGSize
     
     @State private var lastScale: CGFloat = 1.0
     @State private var lastOffset: CGSize = .zero
@@ -204,8 +242,8 @@ struct ZoomableImageView: View {
             .blur(radius: dismissalProgress * 30)
             .opacity(1.0 - dismissalProgress)
             .position(
-                x: showContent ? geometry.size.width / 2 : sourceFrame.midX,
-                y: showContent ? geometry.size.height / 2 : sourceFrame.midY
+                x: showContent ? geometry.size.width / 2 + dragOffset.width : sourceFrame.midX,
+                y: showContent ? geometry.size.height / 2 + dragOffset.height : sourceFrame.midY
             )
             .animation(.smooth(duration: 0.4), value: showContent)
             .animation(.easeOut(duration: 0.1), value: dismissalProgress)

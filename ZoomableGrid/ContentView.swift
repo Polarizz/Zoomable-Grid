@@ -132,6 +132,7 @@ struct ContentView: View {
     @State private var selectedImageIndex: Int = 0
     @State private var showFullscreenImage: Bool = false
     @State private var selectedCellFrame: CGRect = .zero
+    @State private var dismissTargetFrame: CGRect = .zero
 
     // Namespaces for animations
     @Namespace private var gridCollapseNamespace
@@ -518,13 +519,13 @@ struct ContentView: View {
                 }
             }
             
-            // Fullscreen image overlay
+            // Fullscreen image overlay with paging
             if showFullscreenImage {
-                FullscreenPagingContainer(
+                FullscreenPagingView(
                     photos: photos,
-                    initialIndex: selectedImageIndex,
-                    initialSourceFrame: selectedCellFrame,
-                    isPresented: $showFullscreenImage
+                    selectedIndex: $selectedImageIndex,
+                    isPresented: $showFullscreenImage,
+                    sourceFrame: selectedCellFrame
                 )
                 .transition(.identity)
                 .zIndex(100)
