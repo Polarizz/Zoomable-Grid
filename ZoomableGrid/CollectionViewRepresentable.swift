@@ -36,9 +36,6 @@ struct CollectionViewRepresentable: UIViewControllerRepresentable {
         controller.bottomSafeAreaInset = bottomSafeAreaInset
         controller.onVisibleItemsChanged = onVisibleItemsChanged
         controller.onImageTapped = onImageTapped
-        controller.frameForIndex = { index in
-            return controller.getFrameForIndex(index)
-        }
         
         context.coordinator.viewController = controller
         
