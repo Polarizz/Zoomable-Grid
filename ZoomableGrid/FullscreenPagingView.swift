@@ -19,6 +19,7 @@ struct FullscreenPagingView: View {
     @State private var isDismissing: Bool = false
     @State private var dragOffset: CGSize = .zero
     @State private var backgroundOpacity: Double = 0.0
+    @State private var sidePhotosOpacity: Double = 1.0
     
     var body: some View {
         ZStack {
@@ -42,11 +43,19 @@ struct FullscreenPagingView: View {
                         isPresented: $isPresented,
                         sourceFrame: index == selectedIndex ? sourceFrame : .zero,
                         isCurrentPage: index == currentPage,
+                        shouldPreload: shouldPreloadImage(at: index),
                         onDragChanged: { offset in
                             dragOffset = offset
                             // Calculate opacity based on drag distance
                             let dragDistance = abs(offset.height)
                             backgroundOpacity = max(0, 1.0 - (dragDistance / 300.0))
+                            
+                            // Immediately hide side photos when dragging starts
+                            if abs(offset.height) > 0 {
+                                withAnimation(.easeOut(duration: 0.1)) {
+                                    sidePhotosOpacity = 0.0
+                                }
+                            }
                         },
                         onDragEnded: { shouldDismiss in
                             if shouldDismiss {
@@ -58,6 +67,7 @@ struct FullscreenPagingView: View {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                     dragOffset = .zero
                                     backgroundOpacity = 1.0
+                                    sidePhotosOpacity = 1.0
                                 }
                             }
                         },
@@ -67,6 +77,7 @@ struct FullscreenPagingView: View {
                         }
                     )
                     .tag(index)
+                    .opacity(index == currentPage ? 1.0 : sidePhotosOpacity)
                 }
             }
             .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
@@ -82,6 +93,12 @@ struct FullscreenPagingView: View {
             selectedIndex = newValue
         }
     }
+    
+    private func shouldPreloadImage(at index: Int) -> Bool {
+        // Preload current image and 2 images on each side
+        let distance = abs(index - currentPage)
+        return distance <= 2
+    }
 }
 
 struct SingleFullscreenView: View {
@@ -89,6 +106,7 @@ struct SingleFullscreenView: View {
     @Binding var isPresented: Bool
     let sourceFrame: CGRect
     let isCurrentPage: Bool
+    let shouldPreload: Bool
     let onDragChanged: (CGSize) -> Void
     let onDragEnded: (Bool) -> Void
     let isDismissing: Bool
@@ -163,7 +181,7 @@ struct SingleFullscreenView: View {
             }
         }
         .onAppear {
-            if let asset = itemData.asset {
+            if shouldPreload, let asset = itemData.asset {
                 loadFullImage(from: asset)
             }
         }
